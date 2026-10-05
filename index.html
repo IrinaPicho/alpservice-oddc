@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Альпсервис — ОДДС</title>
+<meta name="description" content="Альпсервис — учет платежей по проектам: отчеты сотрудников, статусы проверки, архив.">
+<meta name="theme-color" content="#f3f4f6">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<svg class="icon-sprite" aria-hidden="true">
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="8" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></symbol>
+  <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M6 2h12v18l-2-1.4L14 20l-2-1.4L10 20l-2-1.4L6 20V2z"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="13" y2="15"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><line x1="10" y1="13" x2="14" y2="13"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><line x1="12" y1="1.5" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22.5"/><line x1="4.2" y1="4.2" x2="6" y2="6"/><line x1="18" y1="18" x2="19.8" y2="19.8"/><line x1="1.5" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22.5" y2="12"/><line x1="4.2" y1="19.8" x2="6" y2="18"/><line x1="18" y1="6" x2="19.8" y2="4.2"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.2 14.6A8.5 8.5 0 1 1 9.4 3.8a7 7 0 0 0 10.8 10.8z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14.5"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="8 12.5 11 15.5 16 9"/></symbol>
+  <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-7-11-7a19.9 19.9 0 0 1 4.22-5.44M9.9 4.24A10.9 10.9 0 0 1 12 4c7 0 11 7 11 7a19.9 19.9 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 11l1.4-4.3A2 2 0 0 1 8.3 5.3h7.4a2 2 0 0 1 1.9 1.4L19 11"/><rect x="3" y="11" width="18" height="6.2" rx="2.2"/><circle cx="7.3" cy="17.4" r="1.4"/><circle cx="16.7" cy="17.4" r="1.4"/></symbol>
+  <symbol id="i-building" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="1"/><line x1="8" y1="7" x2="8" y2="7.1"/><line x1="12" y1="7" x2="12" y2="7.1"/><line x1="16" y1="7" x2="16" y2="7.1"/><line x1="8" y1="11" x2="8" y2="11.1"/><line x1="12" y1="11" x2="12" y2="11.1"/><line x1="16" y1="11" x2="16" y2="11.1"/><line x1="8" y1="15" x2="8" y2="15.1"/><line x1="12" y1="15" x2="12" y2="15.1"/><line x1="16" y1="15" x2="16" y2="15.1"/><path d="M10 21v-3h4v3"/></symbol>
+  <symbol id="i-truck" viewBox="0 0 24 24"><path d="M2 8h11v8H2z"/><path d="M13 11h4l3 3v2h-7z"/><circle cx="6.5" cy="18" r="1.6"/><circle cx="17.5" cy="18" r="1.6"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><line x1="12" y1="13" x2="12" y2="21"/></symbol>
+  <symbol id="i-bed" viewBox="0 0 24 24"><path d="M3 18v-9a2 2 0 0 1 2-2h5v4"/><path d="M3 13h18v5"/><path d="M10 11h11a2 2 0 0 1 2 2v5"/><line x1="3" y1="21" x2="3" y2="18"/><line x1="21" y1="21" x2="21" y2="18"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.6"/><path d="M15.5 14.2c2.6.4 4.3 2.3 4.5 5.3"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 8.8a15.5 15.5 0 0 1 20 0"/><path d="M5.5 12.4a10.7 10.7 0 0 1 13 0"/><path d="M9 16a5.8 5.8 0 0 1 6 0"/><circle cx="12" cy="19.2" r="1"/></symbol>
+  <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="12" rx="1"/><path d="M3 13h18"/><path d="M12 9v12"/><path d="M12 9C9 9 8 6.5 9.5 5S12 5.5 12 9"/><path d="M12 9c3 0 4-2.5 2.5-4S12 5.5 12 9"/></symbol>
+  <symbol id="i-income" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="7" x2="12" y2="17"/><polyline points="8 13 12 17 16 13"/></symbol>
+  <symbol id="i-other" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
+</svg>
+
+<div id="app">
+
+  <!-- ===================== AUTH ===================== -->
+  <div id="auth-wrap" class="auth-wrap">
+    <div class="auth-shell">
+
+      <div class="auth-head">
+        <span class="logo-badge"><img src="logo.png" alt="Альпсервис групп"></span>
+        <div id="brand-sub" class="brand-sub">Учет платежей по проектам</div>
+      </div>
+
+      <div class="toolbar">
+        <button id="back-btn" class="back-btn" type="button" onclick="showScreen('login')" hidden>
+          <svg class="icon icon-sm"><use href="#i-back"/></svg>
+          Назад
+        </button>
+      </div>
+
+      <section id="screen-login" class="screen">
+        <div id="login-role-tabs" class="tabs">
+          <button id="tab-sotr" class="tab active" type="button" onclick="setRole('sotr')">Сотрудник</button>
+          <button id="tab-buh" class="tab" type="button" onclick="setRole('buh')">Бухгалтер</button>
+        </div>
+        <div id="role-hint" class="role-hint">Добавляйте платежи и отправляйте отчет на проверку</div>
+
+        <div class="card auth-card">
+          <div id="field-project" class="field">
+            <label for="proj-code">Проект</label>
+            <input id="proj-code" type="text" placeholder="Шифр проекта, например 30-155">
+          </div>
+          <div id="field-project-customer" class="field">
+            <label for="proj-customer">Заказчик</label>
+            <input id="proj-customer" type="text" placeholder="Например, ПАО «Роснефть»">
+          </div>
+          <div class="field">
+            <label for="mail">Почта</label>
+            <input id="mail" type="email" placeholder="ivan@alpservice-group.ru">
+          </div>
+          <div class="field">
+            <label for="pass">Пароль</label>
+            <div class="pass-wrap">
+              <input id="pass" type="password" placeholder="••••••••">
+              <button class="pass-toggle" type="button" onclick="togglePass('pass', this)" aria-label="Показать пароль">
+                <svg class="icon"><use href="#i-eye"/></svg>
+              </button>
+            </div>
+          </div>
+          <div id="login-error" class="field-error" hidden>Неверная почта или пароль</div>
+          <button class="btn-primary" type="button" onclick="attemptLogin()">Войти</button>
+          <button id="register-link" class="text-link" type="button" onclick="showScreen('register')">Зарегистрироваться</button>
+        </div>
+
+        <div class="director-login-row">
+          <button id="director-link" class="text-link director-link" type="button" onclick="toggleDirectorLogin()">Войти как руководитель</button>
+        </div>
+      </section>
+
+      <section id="screen-register" class="screen" hidden>
+        <div class="screen-title">
+          <h1>Регистрация сотрудника</h1>
+          <div class="sub">Заполните данные, чтобы получить доступ к приложению</div>
+        </div>
+        <div class="card auth-card">
+          <div class="field">
+            <label for="r-proj-code">Проект</label>
+            <input id="r-proj-code" type="text" placeholder="Шифр проекта, например 30-155">
+          </div>
+          <div class="field">
+            <label for="r-proj-customer">Заказчик</label>
+            <input id="r-proj-customer" type="text" placeholder="Например, ПАО «Роснефть»">
+          </div>
+          <div class="field">
+            <label for="r-fio">ФИО</label>
+            <input id="r-fio" type="text" placeholder="Иванов Иван Иванович">
+          </div>
+          <div class="field">
+            <label for="r-phone">Телефон</label>
+            <input id="r-phone" type="tel" placeholder="+7 900 000-00-00">
+          </div>
+          <div class="field">
+            <label for="r-role">Должность</label>
+            <input id="r-role" type="text" placeholder="Например, прораб">
+          </div>
+          <div class="field">
+            <label for="r-mail">Почта</label>
+            <input id="r-mail" type="email" placeholder="you@company.ru">
+          </div>
+          <div class="field">
+            <label for="r-pass">Пароль</label>
+            <div class="pass-wrap">
+              <input id="r-pass" type="password" placeholder="••••••••">
+              <button class="pass-toggle" type="button" onclick="togglePass('r-pass', this)" aria-label="Показать пароль">
+                <svg class="icon"><use href="#i-eye"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="consent consent-obrabotka">
+            <input id="c1" type="checkbox">
+            <label for="c1">Согласие на обработку персональных данных</label>
+          </div>
+          <div class="consent consent-nerazglashenie">
+            <input id="c2" type="checkbox">
+            <label for="c2">Согласие на неразглашение конфиденциальной информации</label>
+          </div>
+          <button class="btn-primary" type="button" onclick="completeRegistration()">Зарегистрироваться</button>
+          <button class="text-link" type="button" onclick="showScreen('login')">Уже есть аккаунт? Войти</button>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ===================== WORKSPACE ===================== -->
+  <div id="workspace" class="workspace" hidden>
+
+    <header class="topbar">
+      <span class="logo-badge logo-badge-sm"><img src="logo.png" alt="Альпсервис групп"></span>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-brand-row">
+          <span class="logo-badge logo-badge-sm"><img src="logo.png" alt="Альпсервис групп"></span>
+        </div>
+        <nav class="side-nav" aria-label="Разделы">
+          <button class="side-nav-item is-active" type="button" data-view="dashboard">
+            <svg class="icon"><use href="#i-grid"/></svg>
+            <span>Дашборд</span>
+          </button>
+          <button class="side-nav-item" type="button" data-view="report">
+            <svg class="icon"><use href="#i-receipt"/></svg>
+            <span>Отчетность</span>
+          </button>
+          <button class="side-nav-item" type="button" data-view="archive">
+            <svg class="icon"><use href="#i-archive"/></svg>
+            <span>Архив</span>
+          </button>
+        </nav>
+        <button class="add-btn" id="add-btn-desktop" type="button">
+          <svg class="icon"><use href="#i-plus"/></svg>
+          <span>Новый отчет</span>
+        </button>
+        <div class="sidebar-foot">
+          <div class="sidebar-employee" id="dash-employee-name-side"></div>
+          <button class="text-link logout-link" type="button" onclick="doLogout()">
+            <svg class="icon icon-sm"><use href="#i-logout"/></svg>
+            Выйти
+          </button>
+        </div>
+      </aside>
+
+      <main class="main">
+
+        <section id="view-dashboard" class="view">
+          <div class="view-head view-head-split">
+            <div>
+              <h1>Кабинет сотрудника</h1>
+              <div class="dash-object" id="dash-employee-name"></div>
+            </div>
+            <button class="add-btn" id="dashboard-send-btn" type="button">
+              <svg class="icon"><use href="#i-send"/></svg>
+              <span>Отправить отчет</span>
+            </button>
+          </div>
+
+          <div class="stat-grid">
+            <div class="stat-card stat-total">
+              <span class="stat-icon-chip stat-icon-chip-on-red"><svg class="icon"><use href="#i-send"/></svg></span>
+              <span class="stat-label">Всего отправлено</span>
+              <span class="stat-value"><span id="stat-total-sum">0</span> ₽</span>
+              <span class="stat-sub" id="stat-total-count">0 отчетов</span>
+            </div>
+            <div class="stat-card stat-pending">
+              <span class="stat-icon-chip"><svg class="icon"><use href="#i-clock"/></svg></span>
+              <span class="stat-label">На проверке</span>
+              <span class="stat-value"><span id="stat-pending-sum">0</span> ₽</span>
+              <span class="stat-sub" id="stat-pending-count">0</span>
+            </div>
+            <div class="stat-card stat-approved">
+              <span class="stat-icon-chip"><svg class="icon"><use href="#i-check-circle"/></svg></span>
+              <span class="stat-label">Одобрено</span>
+              <span class="stat-value"><span id="stat-approved-sum">0</span> ₽</span>
+              <span class="stat-sub" id="stat-approved-count">0</span>
+            </div>
+            <div class="stat-card stat-rejected">
+              <span class="stat-icon-chip"><svg class="icon"><use href="#i-x-circle"/></svg></span>
+              <span class="stat-label">Отклонено</span>
+              <span class="stat-value"><span id="stat-rejected-sum">0</span> ₽</span>
+              <span class="stat-sub" id="stat-rejected-count">0</span>
+            </div>
+          </div>
+
+          <div class="hero-card">
+            <div class="hero-top">
+              <span class="eyebrow">Расходы по статьям</span>
+              <span class="hero-count" id="hero-count">0 операций</span>
+            </div>
+            <div class="proportion-bar" id="proportion-bar" role="img" aria-label="Доли категорий в расходах"></div>
+            <div class="proportion-legend" id="proportion-legend"></div>
+          </div>
+
+          <div class="section-head">
+            <h2>Последние отчеты</h2>
+            <button class="text-link" type="button" data-view="archive">Все отчеты<svg class="icon icon-sm"><use href="#i-chevron"/></svg></button>
+          </div>
+          <div class="recent-list" id="recent-list"></div>
+        </section>
+
+        <section id="view-report" class="view" hidden>
+          <div class="view-head">
+            <h1>Отчетность</h1>
+            <div class="dash-object">Отправляйте отчеты по расходам и приходам на проверку бухгалтеру</div>
+          </div>
+
+          <div class="chat-card">
+            <div class="chat-head">
+              <div class="tabs">
+                <button id="chat-tab-expense" class="tab active" type="button" onclick="setComposeType('expense')">Отправить отчет</button>
+                <button id="chat-tab-income" class="tab" type="button" onclick="setComposeType('income')">Отправить приход</button>
+              </div>
+            </div>
+
+            <div class="chat-thread" id="chat-thread"></div>
+
+            <div class="chat-compose">
+              <div class="field">
+                <label for="chat-statya">Статья<span class="required-mark">*</span></label>
+                <div class="select-wrap">
+                  <select id="chat-statya" onchange="checkChatForm()"></select>
+                  <svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg>
+                </div>
+              </div>
+              <div class="chat-compose-row">
+                <div class="field">
+                  <label for="chat-sum">Сумма<span class="required-mark">*</span></label>
+                  <input id="chat-sum" type="number" inputmode="decimal" placeholder="0" oninput="checkChatForm()">
+                </div>
+                <div class="field date-field" id="chat-date-field" onclick="openDatePicker(event)">
+                  <label for="chat-date">Дата<span class="required-mark">*</span></label>
+                  <input id="chat-date" type="date" onchange="checkChatForm()">
+                </div>
+              </div>
+              <div class="field">
+                <label for="chat-comment">Комментарий</label>
+                <input id="chat-comment" type="text" placeholder="Необязательно">
+              </div>
+              <div class="chat-compose-actions">
+                <button id="chat-attach" class="upload-btn" type="button" onclick="document.getElementById('chat-file').click()">
+                  <svg class="icon icon-sm"><use href="#i-upload"/></svg>
+                  <span id="chat-attach-label">Прикрепить чек (можно несколько)</span><span class="required-mark">*</span>
+                </button>
+                <input id="chat-file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" multiple hidden onchange="handleChatFile(this)">
+                <button id="chat-submit" class="btn-primary" type="button" onclick="submitChatCard()" disabled>Отправить</button>
+              </div>
+              <div class="file-preview-list" id="chat-file-previews"></div>
+              <button id="chat-cancel-edit" class="text-link chat-cancel-edit" type="button" onclick="cancelEditReport()" hidden>Отменить редактирование</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-archive" class="view" hidden>
+          <div class="view-head">
+            <h1>Архив отчетов</h1>
+            <div class="dash-object">Закрытые месячные отчеты по проекту</div>
+          </div>
+          <div class="archive-grid" id="archive-grid">
+            <div class="archive-card">
+              <span class="archive-icon"><svg class="icon"><use href="#i-file"/></svg></span>
+              <div class="archive-row-info">
+                <div class="archive-row-name">Отчет_август_2026.pdf</div>
+                <div class="archive-row-meta">Закрыт 01.09.2026 · 21 операция</div>
+              </div>
+              <button class="archive-dl" type="button" aria-label="Скачать"><svg class="icon icon-sm"><use href="#i-download"/></svg></button>
+            </div>
+            <div class="archive-card">
+              <span class="archive-icon"><svg class="icon"><use href="#i-file"/></svg></span>
+              <div class="archive-row-info">
+                <div class="archive-row-name">Отчет_июль_2026.pdf</div>
+                <div class="archive-row-meta">Закрыт 01.08.2026 · 17 операций</div>
+              </div>
+              <button class="archive-dl" type="button" aria-label="Скачать"><svg class="icon icon-sm"><use href="#i-download"/></svg></button>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+
+    <nav class="bottom-nav" aria-label="Разделы">
+      <button class="bottom-nav-item is-active" type="button" data-view="dashboard">
+        <svg class="icon"><use href="#i-grid"/></svg>
+        <span>Дашборд</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-view="report">
+        <svg class="icon"><use href="#i-receipt"/></svg>
+        <span>Отчеты</span>
+      </button>
+      <button class="fab" id="add-btn-mobile" type="button" aria-label="Новый отчет">
+        <svg class="icon"><use href="#i-plus"/></svg>
+      </button>
+      <button class="bottom-nav-item" type="button" data-view="archive">
+        <svg class="icon"><use href="#i-archive"/></svg>
+        <span>Архив</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- ===================== WORKSPACE БУХГАЛТЕРА ===================== -->
+  <div id="workspace-buh" class="workspace" hidden>
+
+    <header class="topbar">
+      <span class="logo-badge logo-badge-sm"><img src="logo.png" alt="Альпсервис групп"></span>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-brand-row">
+          <span class="logo-badge logo-badge-sm"><img src="logo.png" alt="Альпсервис групп"></span>
+        </div>
+        <nav class="side-nav" aria-label="Разделы">
+          <button class="side-nav-item is-active" type="button" data-view="buh-dashboard">
+            <svg class="icon"><use href="#i-grid"/></svg>
+            <span>Дашборд</span>
+          </button>
+          <button class="side-nav-item" type="button" data-view="buh-queue">
+            <svg class="icon"><use href="#i-clock"/></svg>
+            <span>На проверке</span>
+          </button>
+          <button class="side-nav-item" type="button" data-view="buh-all">
+            <svg class="icon"><use href="#i-receipt"/></svg>
+            <span>Все отчеты</span>
+          </button>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="sidebar-employee" id="buh-name-side"></div>
+          <button class="text-link logout-link" type="button" onclick="doLogout()">
+            <svg class="icon icon-sm"><use href="#i-logout"/></svg>
+            Выйти
+          </button>
+        </div>
+      </aside>
+
+      <main class="main">
+
+        <section id="view-buh-dashboard" class="view">
+          <div class="view-head">
+            <h1>Кабинет бухгалтера</h1>
+            <div class="dash-object" id="buh-name"></div>
+          </div>
+
+          <div class="stat-grid">
+            <div class="stat-card stat-total">
+              <span class="stat-icon-chip stat-icon-chip-on-red"><svg class="icon"><use href="#i-clock"/></svg></span>
+              <span class="stat-label">На проверке</span>
+              <span class="stat-value"><span id="buh-stat-pending-sum">0</span> ₽</span>
+              <span class="stat-sub" id="buh-stat-pending-count">0 отчетов</span>
+            </div>
+            <div class="stat-card stat-approved">
+              <span class="stat-icon-chip"><svg class="icon"><use href="#i-check-circle"/></svg></span>
+              <span class="stat-label">Одобрено</span>
+              <span class="stat-value"><span id="buh-stat-approved-sum">0</span> ₽</span>
+              <span class="stat-sub" id="buh-stat-approved-count">0</span>
+            </div>
+            <div class="stat-card stat-rejected">
+              <span class="stat-icon-chip"><svg class="icon"><use href="#i-x-circle"/></svg></span>
+              <span class="stat-label">Отклонено</span>
+              <span class="stat-value"><span id="buh-stat-rejected-sum">0</span> ₽</span>
+              <span class="stat-sub" id="buh-stat-rejected-count">0</span>
+            </div>
+            <div class="stat-card stat-pending">
+              <span class="stat-icon-chip"><svg class="icon"><use href="#i-users"/></svg></span>
+              <span class="stat-label">Сотрудников</span>
+              <span class="stat-value" id="buh-stat-employees">0</span>
+              <span class="stat-sub">подают отчеты</span>
+            </div>
+          </div>
+
+          <div class="section-head">
+            <h2>Ожидают проверки</h2>
+            <button class="text-link" type="button" data-view="buh-queue">Все заявки<svg class="icon icon-sm"><use href="#i-chevron"/></svg></button>
+          </div>
+          <div class="recent-list" id="buh-dashboard-queue"></div>
+        </section>
+
+        <section id="view-buh-queue" class="view" hidden>
+          <div class="view-head">
+            <h1>На проверке</h1>
+            <div class="dash-object">Проверяйте и одобряйте или отклоняйте отчеты сотрудников</div>
+          </div>
+          <div class="review-list" id="buh-queue-list"></div>
+        </section>
+
+        <section id="view-buh-all" class="view" hidden>
+          <div class="view-head">
+            <h1>Все отчеты</h1>
+            <div class="dash-object">Отчеты всех сотрудников по проекту</div>
+          </div>
+          <div class="tabs tabs-filter">
+            <button class="tab active" type="button" onclick="setBuhFilter('all')">Все</button>
+            <button class="tab" type="button" onclick="setBuhFilter('pending')">На проверке</button>
+            <button class="tab" type="button" onclick="setBuhFilter('approved')">Одобрено</button>
+            <button class="tab" type="button" onclick="setBuhFilter('rejected')">Отклонено</button>
+          </div>
+          <div class="review-list" id="buh-all-list"></div>
+        </section>
+
+      </main>
+    </div>
+
+    <nav class="bottom-nav" aria-label="Разделы">
+      <button class="bottom-nav-item is-active" type="button" data-view="buh-dashboard">
+        <svg class="icon"><use href="#i-grid"/></svg>
+        <span>Дашборд</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-view="buh-queue">
+        <svg class="icon"><use href="#i-clock"/></svg>
+        <span>Проверка</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-view="buh-all">
+        <svg class="icon"><use href="#i-receipt"/></svg>
+        <span>Отчеты</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- ===================== WORKSPACE РУКОВОДИТЕЛЯ ===================== -->
+  <div id="workspace-ruk" class="workspace" hidden>
+
+    <header class="topbar">
+      <span class="logo-badge logo-badge-sm"><img src="logo.png" alt="Альпсервис групп"></span>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-brand-row">
+          <span class="logo-badge logo-badge-sm"><img src="logo.png" alt="Альпсервис групп"></span>
+        </div>
+        <nav class="side-nav" aria-label="Разделы">
+          <button class="side-nav-item is-active" type="button" data-view="ruk-buh">
+            <svg class="icon"><use href="#i-users"/></svg>
+            <span>Бухгалтеры</span>
+          </button>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="sidebar-employee" id="ruk-name-side"></div>
+          <button class="text-link logout-link" type="button" onclick="doLogout()">
+            <svg class="icon icon-sm"><use href="#i-logout"/></svg>
+            Выйти
+          </button>
+        </div>
+      </aside>
+
+      <main class="main">
+
+        <section id="view-ruk-buh" class="view">
+          <div class="view-head">
+            <h1>Кабинет руководителя</h1>
+            <div class="dash-object" id="ruk-name"></div>
+          </div>
+
+          <div class="stat-grid stat-grid-ruk">
+            <div class="stat-card stat-total">
+              <span class="stat-icon-chip stat-icon-chip-on-red"><svg class="icon"><use href="#i-users"/></svg></span>
+              <span class="stat-label">Бухгалтеров</span>
+              <span class="stat-value" id="ruk-stat-count">0</span>
+              <span class="stat-sub">имеют доступ</span>
+            </div>
+            <div class="stat-card stat-pending">
+              <span class="stat-icon-chip"><svg class="icon"><use href="#i-building"/></svg></span>
+              <span class="stat-label">Проектов привязано</span>
+              <span class="stat-value" id="ruk-stat-projects">0</span>
+              <span class="stat-sub">шифров проекта</span>
+            </div>
+          </div>
+
+          <div class="card auth-card ruk-add-card">
+            <div class="chat-compose-row">
+              <div class="field">
+                <label for="ruk-new-mail">Почта бухгалтера</label>
+                <input id="ruk-new-mail" type="email" placeholder="buh@alpservice-group.ru" oninput="checkRukForm()">
+              </div>
+              <div class="field">
+                <label for="ruk-new-code">Шифр проекта</label>
+                <input id="ruk-new-code" type="text" placeholder="Например, 30-155" oninput="checkRukForm()">
+              </div>
+            </div>
+            <div id="ruk-form-error" class="field-error" hidden>Такая почта уже добавлена</div>
+            <button id="ruk-add-btn" class="btn-primary" type="button" onclick="addAccountantFromForm()" disabled>Добавить бухгалтера</button>
+          </div>
+
+          <div class="section-head">
+            <h2>Бухгалтеры с доступом</h2>
+          </div>
+          <div class="ruk-list" id="ruk-list"></div>
+        </section>
+
+      </main>
+    </div>
+
+    <nav class="bottom-nav" aria-label="Разделы">
+      <button class="bottom-nav-item is-active" type="button" data-view="ruk-buh">
+        <svg class="icon"><use href="#i-users"/></svg>
+        <span>Бухгалтеры</span>
+      </button>
+    </nav>
+
+  </div>
+
+  <!-- ===================== Модалка: детали отчета (кабинет сотрудника) ===================== -->
+  <div id="report-modal-overlay" class="modal-overlay" hidden onclick="closeReportModalOverlay(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <button class="modal-close" type="button" onclick="closeReportModal()" aria-label="Закрыть">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+      <div id="report-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- ===================== Модалка: просмотр вложения ===================== -->
+  <div id="lightbox-overlay" class="modal-overlay" hidden onclick="closeLightboxOverlay(event)">
+    <div class="modal-card lightbox-card" onclick="event.stopPropagation()">
+      <button class="modal-close" type="button" onclick="closeLightbox()" aria-label="Закрыть">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+      <div id="lightbox-body"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
