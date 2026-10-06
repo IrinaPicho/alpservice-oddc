@@ -15,12 +15,14 @@ CREATE TABLE IF NOT EXISTS users (
   project_code    text,            -- шифр проекта: у sotr — свой проект, у buh — проект, который проверяет
   project_customer text,           -- заказчик по проекту (для sotr)
   must_change_password boolean NOT NULL DEFAULT false, -- true после создания руководителем, пока бухгалтер не задал свой пароль
+  advance_amount  numeric(12,2) NOT NULL DEFAULT 0, -- сколько выдано на руки сотруднику (вводит сам), для остатка на дашборде
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS reports (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  report_no         integer NOT NULL, -- номер отчета у этого сотрудника (№1, №2... свой счет у каждого)
   project_code      text,          -- копия с сотрудника — чтобы бухгалтер фильтровал без join
   type              text NOT NULL CHECK (type IN ('expense', 'income')),
   statya            text NOT NULL,

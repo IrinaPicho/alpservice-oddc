@@ -60,7 +60,7 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.id, email: user.email, role: user.role, fullName: user.full_name,
         projectCode: user.project_code, projectCustomer: user.project_customer,
-        mustChangePassword: user.must_change_password,
+        mustChangePassword: user.must_change_password, advanceAmount: Number(user.advance_amount || 0),
       },
     });
   } catch (e) {
@@ -76,12 +76,30 @@ router.post('/logout', (req, res) => {
 
 router.get('/me', requireAuth, async (req, res) => {
   const result = await pool.query(
-    'SELECT id, email, role, full_name, project_code, project_customer, must_change_password FROM users WHERE id = $1',
+    'SELECT id, email, role, full_name, project_code, project_customer, must_change_password, advance_amount FROM users WHERE id = $1',
     [req.user.sub]
   );
   const user = result.rows[0];
   if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
   res.json({ user });
+});
+
+/* ---------- Сотрудник: указать/обновить сумму, выданную на руки ----------
+   Основа для остатка (сальдо) на дашборде: остаток = эта сумма минус сумма
+   собственных отчетов по расходам. */
+router.patch('/advance', requireAuth, async (req, res) => {
+  const amount = Number((req.body || {}).amount);
+  if (!(amount >= 0)) return res.status(400).json({ error: 'Укажите сумму не меньше нуля' });
+  try {
+    const result = await pool.query(
+      'UPDATE users SET advance_amount = $1 WHERE id = $2 RETURNING advance_amount',
+      [amount, req.user.sub]
+    );
+    res.json({ advanceAmount: Number(result.rows[0].advance_amount) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Не удалось сохранить сумму' });
+  }
 });
 
 /* ---------- Смена пароля (сотрудник/бухгалтер сами себе) ---------- */

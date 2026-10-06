@@ -214,6 +214,27 @@
             </button>
           </div>
 
+          <div class="card balance-card" id="balance-card">
+            <div class="balance-row">
+              <div class="balance-item">
+                <span class="balance-label">Выдано на руки</span>
+                <span class="balance-value" id="balance-advance">0 ₽</span>
+              </div>
+              <div class="balance-item">
+                <span class="balance-label">Потрачено</span>
+                <span class="balance-value" id="balance-spent">0 ₽</span>
+              </div>
+              <div class="balance-item balance-item-remain">
+                <span class="balance-label">Остаток</span>
+                <span class="balance-value" id="balance-remain">0 ₽</span>
+              </div>
+            </div>
+            <div class="balance-edit-row">
+              <input id="balance-input" type="number" inputmode="decimal" placeholder="Сколько выдали на руки, ₽">
+              <button class="btn-primary btn-sm" type="button" onclick="updateAdvance()">Сохранить</button>
+            </div>
+          </div>
+
           <div class="stat-grid">
             <div class="stat-card stat-total">
               <span class="stat-icon-chip stat-icon-chip-on-red"><svg class="icon"><use href="#i-send"/></svg></span>

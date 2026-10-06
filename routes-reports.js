@@ -22,6 +22,7 @@ async function attachFiles(reports) {
 function serializeReport(row, employee) {
   return {
     id: row.id,
+    reportNo: row.report_no,
     employee: employee ? { id: employee.id, fullName: employee.full_name } : undefined,
     projectCode: row.project_code,
     type: row.type,
@@ -45,10 +46,17 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
     const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
     const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
 
+    // Свой порядковый номер у каждого сотрудника (№1, №2, №3... независимо от остальных)
+    const seqResult = await pool.query(
+      'SELECT COALESCE(MAX(report_no), 0) + 1 AS next_no FROM reports WHERE employee_id = $1',
+      [req.user.sub]
+    );
+    const reportNo = seqResult.rows[0].next_no;
+
     const result = await pool.query(
-      `INSERT INTO reports (employee_id, project_code, type, statya, sum, date_iso, comment, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending') RETURNING *`,
-      [req.user.sub, projectCode, type, statya, sum, dateIso, comment || '']
+      `INSERT INTO reports (employee_id, report_no, project_code, type, statya, sum, date_iso, comment, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending') RETURNING *`,
+      [req.user.sub, reportNo, projectCode, type, statya, sum, dateIso, comment || '']
     );
     const report = result.rows[0];
 

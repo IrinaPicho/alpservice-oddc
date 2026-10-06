@@ -1,4 +1,10 @@
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+// Колонки типа "date" (date_iso) node-postgres по умолчанию превращает в объект Date
+// в полночь по UTC — при выводе в JSON это может сдвинуть дату на день назад/вперед
+// в зависимости от часового пояса сервера. Отчету важна именно календарная дата, без
+// часового пояса, поэтому возвращаем ее как обычную строку "YYYY-MM-DD".
+types.setTypeParser(1082, (val) => val);
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,

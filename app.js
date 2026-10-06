@@ -47,42 +47,68 @@ function toggleDirectorLogin() {
   setRole(activeLoginRole === 'ruk' ? 'sotr' : 'ruk');
 }
 
-var DEMO_EMAIL = 'ivan@alpservice-group.ru';
-var DEMO_PASSWORD = 'demo1234';
-var DEMO_NAME = 'Иванов Иван Иванович';
+/* ---------- Связь с сервером ---------- */
 
-var BUH_EMAIL = 'buh@alpservice-group.ru';
-var BUH_PASSWORD = 'demo1234';
-var BUH_NAME = 'Смирнова Елена Викторовна';
+function api(path, opts) {
+  opts = opts || {};
+  opts.credentials = 'include';
+  if (opts.body && !(opts.body instanceof FormData)) {
+    opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+    opts.body = JSON.stringify(opts.body);
+  }
+  return fetch(path, opts).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
+      if (!res.ok) {
+        var err = new Error((data && data.error) || 'Ошибка запроса');
+        err.data = data;
+        throw err;
+      }
+      return data;
+    });
+  });
+}
 
-var RUK_EMAIL = 'director@alpservice-group.ru';
-var RUK_PASSWORD = 'demo1234';
-var RUK_NAME = 'Макаренко Алексей';
+var CURRENT_USER = null; // {id,email,role,fullName,projectCode,projectCustomer,advanceAmount}
 
 function attemptLogin() {
   var mail = document.getElementById('mail').value.trim().toLowerCase();
   var pass = document.getElementById('pass').value;
   var errorEl = document.getElementById('login-error');
+  var btn = document.querySelector('#screen-login .btn-primary');
 
-  /* Логин проверяется только против той роли, вкладка (или ссылка) которой выбрана —
-     почта бухгалтера не должна пускать во вкладке "Сотрудник", и наоборот. */
-  if (activeLoginRole === 'sotr' && mail === DEMO_EMAIL && pass === DEMO_PASSWORD) {
-    errorEl.hidden = true;
-    enterWorkspace(DEMO_NAME);
-  } else if (activeLoginRole === 'buh' && mail === BUH_EMAIL && pass === BUH_PASSWORD) {
-    errorEl.hidden = true;
-    enterBuhWorkspace(BUH_NAME);
-  } else if (activeLoginRole === 'ruk' && mail === RUK_EMAIL && pass === RUK_PASSWORD) {
-    errorEl.hidden = true;
-    enterRukWorkspace(RUK_NAME);
-  } else {
-    errorEl.hidden = false;
-  }
+  btn.disabled = true;
+  api('/api/auth/login', { method: 'POST', body: { email: mail, password: pass, role: activeLoginRole } })
+    .then(function (data) {
+      errorEl.hidden = true;
+      CURRENT_USER = data.user;
+      var name = data.user.fullName || mail;
+      if (activeLoginRole === 'sotr') return enterWorkspace(name);
+      if (activeLoginRole === 'buh') return enterBuhWorkspace(name);
+      return enterRukWorkspace(name);
+    })
+    .catch(function () { errorEl.hidden = false; })
+    .then(function () { btn.disabled = false; });
 }
 
 function completeRegistration() {
   var fio = document.getElementById('r-fio').value.trim();
-  enterWorkspace(fio || DEMO_NAME);
+  var phone = document.getElementById('r-phone').value.trim();
+  var position = document.getElementById('r-role').value.trim();
+  var projectCode = document.getElementById('r-proj-code').value.trim();
+  var projectCustomer = document.getElementById('r-proj-customer').value.trim();
+  var mail = document.getElementById('r-mail').value.trim().toLowerCase();
+  var pass = document.getElementById('r-pass').value;
+  if (!fio || !mail || !pass) { window.alert('Заполните ФИО, почту и пароль.'); return; }
+
+  api('/api/auth/register', {
+    method: 'POST',
+    body: { email: mail, password: pass, fullName: fio, phone: phone, position: position, projectCode: projectCode, projectCustomer: projectCustomer },
+  })
+    .then(function (data) {
+      CURRENT_USER = data.user;
+      return enterWorkspace(data.user.full_name || fio);
+    })
+    .catch(function (e) { window.alert(e.message || 'Не удалось зарегистрироваться'); });
 }
 
 function enterWorkspace(name) {
@@ -91,7 +117,7 @@ function enterWorkspace(name) {
   document.getElementById('auth-wrap').hidden = true;
   document.getElementById('workspace').hidden = false;
   showView('dashboard');
-  renderAll();
+  return loadEmployeeData();
 }
 
 function enterBuhWorkspace(name) {
@@ -104,7 +130,7 @@ function enterBuhWorkspace(name) {
     el.classList.toggle('active', idx === 0);
   });
   showView('buh-dashboard');
-  renderBuhAll();
+  return loadBuhData();
 }
 
 function enterRukWorkspace(name) {
@@ -113,15 +139,33 @@ function enterRukWorkspace(name) {
   document.getElementById('auth-wrap').hidden = true;
   document.getElementById('workspace-ruk').hidden = false;
   showView('ruk-buh');
-  renderRukAll();
+  return loadRukData();
 }
 
 function doLogout() {
+  api('/api/auth/logout', { method: 'POST' }).catch(function () {});
+  CURRENT_USER = null;
   document.getElementById('workspace').hidden = true;
   document.getElementById('workspace-buh').hidden = true;
   document.getElementById('workspace-ruk').hidden = true;
   document.getElementById('auth-wrap').hidden = false;
   showScreen('login');
+}
+
+/* Восстановление сессии при обновлении страницы (куки уже есть — просто спросим,
+   кто вошёл, и откроем нужный кабинет без повторного ввода пароля). */
+function tryRestoreSession() {
+  return api('/api/auth/me').then(function (data) {
+    var u = data.user;
+    CURRENT_USER = {
+      id: u.id, email: u.email, role: u.role, fullName: u.full_name,
+      projectCode: u.project_code, projectCustomer: u.project_customer, advanceAmount: u.advance_amount,
+    };
+    var name = u.full_name || u.email;
+    if (u.role === 'sotr') return enterWorkspace(name);
+    if (u.role === 'buh') return enterBuhWorkspace(name);
+    return enterRukWorkspace(name);
+  }).catch(function () { /* не вошли — остаёмся на экране входа */ });
 }
 
 /* ---------- Навигация: разделы кабинета ---------- */
@@ -268,24 +312,17 @@ function catIconChip(group, size) {
 var ICON_PENCIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>';
 
 var THREAD = [];      // {kind:'divider', label} | {kind:'user', ...report} | {kind:'bot', status, text}
-var ALL_REPORTS = []; // сквозной список отчетов всех сотрудников — источник данных для кабинета бухгалтера
-var REPORT_SEQ = 1;
+var ALL_REPORTS = []; // список отчетов (своих — у сотрудника, всех по проекту — у бухгалтера/руководителя)
 var activeComposeType = 'expense';
 var editingId = null;
 
-function addDivider(label) { THREAD.push({ kind: 'divider', label: label }); }
-
-function addReport(type, statya, sum, dateIso, comment, attached, status, files, reviewerComment) {
-  var report = {
-    kind: 'user', id: 'r' + (REPORT_SEQ++), employee: DEMO_NAME, type: type, statya: statya, sum: Number(sum),
-    dateIso: dateIso, comment: comment || '', attached: !!attached, status: status, files: files || [],
-    reviewerComment: reviewerComment || ''
-  };
-  THREAD.push(report);
-  ALL_REPORTS.push(report);
-  return report;
+var MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+function dateDividerLabel(iso) {
+  var parts = iso.split('-');
+  return Number(parts[2]) + ' ' + MONTHS_RU[Number(parts[1]) - 1];
 }
 
+function addDivider(label) { THREAD.push({ kind: 'divider', label: label }); }
 function addBot(status, text) { THREAD.push({ kind: 'bot', status: status, text: text }); }
 
 function findReport(id) {
@@ -295,47 +332,40 @@ function findReport(id) {
   return null;
 }
 
-/* ---------- Отчеты других сотрудников (демо-данные для кабинета бухгалтера) ---------- */
-
-function addForeignReport(employee, type, statya, sum, dateIso, comment, status, files, reviewerComment) {
-  var report = {
-    kind: 'other', id: 'r' + (REPORT_SEQ++), employee: employee, type: type, statya: statya, sum: Number(sum),
-    dateIso: dateIso, comment: comment || '', attached: true, status: status, files: files || [],
-    reviewerComment: reviewerComment || ''
-  };
-  ALL_REPORTS.push(report);
-  return report;
+function botTextFor(report) {
+  var isExpense = report.type === 'expense';
+  if (report.status === 'approved') {
+    return isExpense ? 'Отчет согласован бухгалтером.' : 'Приход согласован бухгалтером.';
+  }
+  if (report.status === 'rejected') {
+    return (isExpense ? 'Отчет отклонен бухгалтером.' : 'Приход отклонен бухгалтером.') +
+      (report.reviewerComment ? ' Комментарий: ' + report.reviewerComment : '');
+  }
+  return isExpense ? 'Отчет принят и отправлен на проверку бухгалтеру.' : 'Приход принят и отправлен на проверку бухгалтеру.';
 }
 
-function demoFile(kind, name) {
-  return { type: kind, url: 'demo-' + name, name: name };
+/* ---------- Загрузка данных кабинета сотрудника с сервера ---------- */
+
+function buildThreadFromReports(list) {
+  THREAD = [];
+  var sorted = list.slice().sort(function (a, b) {
+    return a.dateIso === b.dateIso ? a.reportNo - b.reportNo : a.dateIso.localeCompare(b.dateIso);
+  });
+  var lastDate = null;
+  sorted.forEach(function (r) {
+    if (r.dateIso !== lastDate) { addDivider(dateDividerLabel(r.dateIso)); lastDate = r.dateIso; }
+    THREAD.push(Object.assign({ kind: 'user' }, r));
+    addBot(r.status, botTextFor(r));
+  });
 }
 
-function seedOtherEmployees() {
-  addForeignReport('Петров Пётр Петрович', 'expense', 'Аренда спецтехники (кран, агп, пеканиска, воровайка)', 32000, '2026-09-18', 'Кран для монтажа конструкций, 2 смены', 'pending', [demoFile('pdf', 'receipt-1.pdf')]);
-  addForeignReport('Петров Пётр Петрович', 'expense', 'Связь, интернет', 2100, '2026-09-10', '', 'approved', [demoFile('image', 'receipt-3.png')]);
-  addForeignReport('Петров Пётр Петрович', 'expense', 'Представительские расходы (конфеты, кофе/чай, алкоголь, благодарность)', 4800, '2026-09-08', 'Встреча с заказчиком', 'rejected', [demoFile('image', 'receipt-4.png')], 'Нет детализации по позициям, приложите чек из заведения.');
-
-  addForeignReport('Сидорова Анна Игоревна', 'expense', 'Покупка оргтехники (компьютер, принтер, телефон)', 56000, '2026-09-20', 'Ноутбук для ПТО', 'pending', [demoFile('pdf', 'receipt-2.pdf')]);
-  addForeignReport('Сидорова Анна Игоревна', 'expense', 'Доставка материала', 9100, '2026-09-21', '', 'pending', [demoFile('image', 'receipt-2.png')]);
-  addForeignReport('Сидорова Анна Игоревна', 'income', 'Оплата по акту', 240000, '2026-09-12', '', 'approved', [demoFile('pdf', 'receipt-1.pdf')]);
-
-  addForeignReport('Козлов Дмитрий Сергеевич', 'expense', 'Проживание ИТР', 27300, '2026-09-23', 'Гостиница, 7 суток, 2 чел.', 'pending', [demoFile('image', 'receipt-4.png')]);
-  addForeignReport('Козлов Дмитрий Сергеевич', 'expense', 'ГСМ (бензин, масла, смазка)', 3200, '2026-09-14', '', 'rejected', [demoFile('image', 'receipt-1.png')], 'Сумма не совпадает с чеком, уточните и пересчитайте.');
-}
-
-function seedChatHistory() {
-  addDivider('15 сентября');
-  addReport('expense', 'Хознужды', 1350, '2026-09-15', 'Такси до объекта и канцтовары', true, 'rejected', [demoFile('image', 'receipt-3.png')], 'Чек нечитаем, приложите новый.');
-  addBot('rejected', 'Отчет отклонен бухгалтером. Комментарий: чек нечитаем, приложите новый.');
-
-  addDivider('19 сентября');
-  addReport('expense', 'Покупка материалов', 18600, '2026-09-19', '', true, 'approved', [demoFile('image', 'receipt-2.png')]);
-  addBot('approved', 'Отчет согласован бухгалтером.');
-
-  addDivider('22 сентября');
-  addReport('expense', 'ГСМ (бензин, масла, смазка)', 4200, '2026-09-22', '', true, 'pending', [demoFile('image', 'receipt-1.png')]);
-  addBot('pending', 'Отчет принят и отправлен на проверку бухгалтеру.');
+function loadEmployeeData() {
+  return api('/api/reports/mine').then(function (data) {
+    ALL_REPORTS = data.reports;
+    buildThreadFromReports(data.reports);
+    renderAll();
+    renderBalance();
+  });
 }
 
 /* ---------- Рендер чат-ленты ---------- */
@@ -373,7 +403,7 @@ function renderReportCard(report) {
   card.innerHTML =
     (editable ? '<button class="msg-card-edit" type="button" onclick="startEditReport(\'' + report.id + '\')" aria-label="Редактировать">' + ICON_PENCIL + '</button>' : '') +
     '<div class="msg-card-head">' + catIconChip(group, 'sm') +
-      '<div><div class="msg-card-type">' + (report.type === 'expense' ? 'Отчет по расходу' : 'Приход') + '</div></div>' +
+      '<div><div class="msg-card-type">' + (report.type === 'expense' ? 'Отчет по расходу' : 'Приход') + ' №' + report.reportNo + '</div></div>' +
     '</div>' +
     '<div class="msg-card-title">' + escapeHtml(report.statya) + '</div>' +
     '<div class="msg-card-sum">' + report.sum.toLocaleString('ru-RU') + ' ₽</div>' +
@@ -509,7 +539,7 @@ function startEditReport(id) {
   document.getElementById('chat-comment').value = report.comment;
   document.getElementById('chat-file').value = '';
   selectedFiles = [];
-  keepExistingAttachment = !!report.attached;
+  keepExistingAttachment = !!(report.files && report.files.length);
   renderFilePreviews();
   updateAttachLabel();
 
@@ -524,13 +554,12 @@ function cancelEditReport() {
   setComposeType(activeComposeType);
 }
 
-function filesToAttachments(files) {
-  return files.map(function (file) {
-    return {
-      type: file.type === 'application/pdf' ? 'pdf' : 'image',
-      url: URL.createObjectURL(file),
-      name: file.name
-    };
+function uploadSelectedFiles() {
+  if (!selectedFiles.length) return Promise.resolve([]);
+  var form = new FormData();
+  selectedFiles.forEach(function (f) { form.append('files', f); });
+  return api('/api/uploads', { method: 'POST', body: form }).then(function (data) {
+    return data.files.map(function (f) { return f.id; });
   });
 }
 
@@ -539,6 +568,7 @@ function submitChatCard() {
   var sumEl = document.getElementById('chat-sum');
   var dateEl = document.getElementById('chat-date');
   var commentEl = document.getElementById('chat-comment');
+  var submitBtn = document.getElementById('chat-submit');
 
   var statya = statyaEl.value;
   var sum = Number(sumEl.value);
@@ -550,31 +580,35 @@ function submitChatCard() {
   if (!hasFile) { return; }
   var dateIso = dateEl.value;
 
+  submitBtn.disabled = true;
+
   if (editingReport) {
-    editingReport.statya = statya;
-    editingReport.sum = sum;
-    editingReport.dateIso = dateIso;
-    editingReport.comment = comment;
-    editingReport.attached = hasFile;
-    editingReport.status = 'pending';
-    if (selectedFiles.length) { editingReport.files = filesToAttachments(selectedFiles); }
-    addBot('pending', activeComposeType === 'expense'
-      ? 'Отчет изменен и повторно отправлен на проверку бухгалтеру.'
-      : 'Приход изменен и повторно отправлен на проверку бухгалтеру.');
-    renderAll();
-    setComposeType(activeComposeType);
+    api('/api/reports/' + editingReport.id, {
+      method: 'PATCH',
+      body: { statya: statya, sum: sum, dateIso: dateIso, comment: comment },
+    })
+      .then(function () { return loadEmployeeData(); })
+      .then(function () { setComposeType(activeComposeType); })
+      .catch(function (e) { window.alert(e.message || 'Не удалось сохранить изменения'); })
+      .then(function () { submitBtn.disabled = false; });
     return;
   }
 
-  addReport(activeComposeType, statya, sum, dateIso, comment, true, 'pending', filesToAttachments(selectedFiles));
-  addBot('pending', activeComposeType === 'expense'
-    ? 'Отчет принят и отправлен на проверку бухгалтеру.'
-    : 'Приход принят и отправлен на проверку бухгалтеру.');
-
-  renderAll();
-  resetComposeFields();
-  checkChatForm();
-  scrollChatToBottom();
+  uploadSelectedFiles()
+    .then(function (fileIds) {
+      return api('/api/reports', {
+        method: 'POST',
+        body: { type: activeComposeType, statya: statya, sum: sum, dateIso: dateIso, comment: comment, fileIds: fileIds },
+      });
+    })
+    .then(function () { return loadEmployeeData(); })
+    .then(function () {
+      resetComposeFields();
+      checkChatForm();
+      scrollChatToBottom();
+    })
+    .catch(function (e) { window.alert(e.message || 'Не удалось отправить отчет'); })
+    .then(function () { submitBtn.disabled = false; });
 }
 
 /* ---------- Дашборд: статистика ---------- */
@@ -584,6 +618,38 @@ function reports() {
 }
 
 function fmtSum(n) { return Math.round(n).toLocaleString('ru-RU'); }
+
+/* ---------- Остаток (сальдо) на главной странице сотрудника ----------
+   Сотрудник сам один раз указывает, сколько ему выдали на руки. Дальше система
+   сама вычитает все его расходы (по всем отчетам, независимо от статуса проверки —
+   деньги уже потрачены по факту) и показывает остаток. */
+function renderBalance() {
+  var card = document.getElementById('balance-card');
+  if (!card) return;
+  var advance = Number((CURRENT_USER && CURRENT_USER.advanceAmount) || 0);
+  var spent = reports().filter(function (r) { return r.type === 'expense'; })
+    .reduce(function (acc, r) { return acc + r.sum; }, 0);
+  var remain = advance - spent;
+  document.getElementById('balance-advance').textContent = fmtSum(advance) + ' ₽';
+  document.getElementById('balance-spent').textContent = fmtSum(spent) + ' ₽';
+  var remainEl = document.getElementById('balance-remain');
+  remainEl.textContent = fmtSum(remain) + ' ₽';
+  remainEl.classList.toggle('balance-negative', remain < 0);
+  var input = document.getElementById('balance-input');
+  if (document.activeElement !== input) { input.value = advance || ''; }
+}
+
+function updateAdvance() {
+  var input = document.getElementById('balance-input');
+  var amount = Number(input.value);
+  if (!input.value || isNaN(amount) || amount < 0) { window.alert('Укажите сумму — сколько выдали на руки.'); return; }
+  api('/api/auth/advance', { method: 'PATCH', body: { amount: amount } })
+    .then(function (data) {
+      CURRENT_USER.advanceAmount = data.advanceAmount;
+      renderBalance();
+    })
+    .catch(function (e) { window.alert(e.message || 'Не удалось сохранить сумму'); });
+}
 
 function renderStats() {
   var all = reports();
@@ -852,7 +918,7 @@ function reviewCardHtml(r, opts) {
     '</div>' +
     '<div class="review-body">' +
       '<div class="msg-card-head">' + catIconChip(group, 'sm') +
-        '<div><div class="msg-card-type">' + typeLabel + '</div></div></div>' +
+        '<div><div class="msg-card-type">' + typeLabel + ' №' + r.reportNo + '</div></div></div>' +
       '<div class="review-title">' + escapeHtml(r.statya) + '</div>' +
       '<div class="review-sum' + (r.type === 'income' ? ' is-income' : '') + '">' + sign + fmtSum(r.sum) + ' ₽</div>' +
       (r.comment ? '<div class="review-comment"><span class="review-comment-label">Комментарий:</span> ' + escapeHtml(r.comment) + '</div>' : '') +
@@ -922,6 +988,15 @@ function renderBuhAllList() {
   wrap.innerHTML = items.map(function (r) { return reviewCardHtml(r, { context: 'all' }); }).join('');
 }
 
+function loadBuhData() {
+  return api('/api/reports').then(function (data) {
+    ALL_REPORTS = data.reports.map(function (r) {
+      return Object.assign({}, r, { employee: r.employee ? r.employee.fullName : '—' });
+    });
+    renderBuhAll();
+  });
+}
+
 function renderBuhAll() {
   renderBuhStats();
   renderBuhDashboardQueue();
@@ -930,26 +1005,10 @@ function renderBuhAll() {
 }
 
 function applyDecision(id, status, comment) {
-  var report = findAnyReport(id);
-  if (!report) return;
-  var wasAlreadyDecided = report.status !== 'pending';
-  report.status = status;
-  report.reviewerComment = comment || '';
   delete expandedReviewIds[id]; // после решения сворачиваем карточку обратно к плашке статуса
-  if (report.kind === 'user') {
-    var text;
-    if (wasAlreadyDecided) {
-      text = status === 'approved'
-        ? (report.type === 'expense' ? 'Решение по отчету изменено: одобрено бухгалтером.' : 'Решение по приходу изменено: одобрено бухгалтером.')
-        : (report.type === 'expense' ? 'Решение по отчету изменено: отклонено бухгалтером.' : 'Решение по приходу изменено: отклонено бухгалтером.') + (comment ? ' Комментарий: ' + comment : '');
-    } else {
-      text = status === 'approved'
-        ? (report.type === 'expense' ? 'Отчет согласован бухгалтером.' : 'Приход согласован бухгалтером.')
-        : (report.type === 'expense' ? 'Отчет отклонен бухгалтером.' : 'Приход отклонен бухгалтером.') + (comment ? ' Комментарий: ' + comment : '');
-    }
-    addBot(status, text);
-  }
-  renderBuhAll();
+  return api('/api/reports/' + id + '/decision', { method: 'PATCH', body: { status: status, reviewerComment: comment || '' } })
+    .then(function () { return loadBuhData(); })
+    .catch(function (e) { window.alert(e.message || 'Не удалось сохранить решение'); });
 }
 
 function accountantApprove(id) {
@@ -990,18 +1049,12 @@ function confirmReject(id, domId) {
    ========================================================================== */
 
 var ACCOUNTANTS = [];
-var ACCOUNTANT_SEQ = 1;
 
-function addAccountant(email, projectCode) {
-  var acc = { id: 'a' + (ACCOUNTANT_SEQ++), email: email, projectCode: projectCode || '' };
-  ACCOUNTANTS.push(acc);
-  return acc;
-}
-
-function seedAccountants() {
-  addAccountant('buh@alpservice-group.ru', '30-155');
-  addAccountant('svetlana.buh@alpservice-group.ru', '30-162');
-  addAccountant('oleg.buh@alpservice-group.ru', '30-170');
+function loadRukData() {
+  return api('/api/accountants').then(function (data) {
+    ACCOUNTANTS = data.accountants;
+    renderRukAll();
+  });
 }
 
 function renderRukStats() {
@@ -1052,21 +1105,29 @@ function addAccountantFromForm() {
   var mail = mailEl.value.trim().toLowerCase();
   var code = codeEl.value.trim();
   if (!mail || !code) return;
-  addAccountant(mail, code);
-  mailEl.value = '';
-  codeEl.value = '';
-  document.getElementById('ruk-form-error').hidden = true;
-  document.getElementById('ruk-add-btn').disabled = true;
-  renderRukAll();
+  var btn = document.getElementById('ruk-add-btn');
+  btn.disabled = true;
+  api('/api/accountants', { method: 'POST', body: { email: mail, projectCode: code } })
+    .then(function (data) {
+      mailEl.value = '';
+      codeEl.value = '';
+      document.getElementById('ruk-form-error').hidden = true;
+      window.alert(
+        'Бухгалтер добавлен.\n\nВременный пароль: ' + data.tempPassword +
+        '\n\nСообщите его бухгалтеру лично (телефон, мессенджер) — после первого входа он должен сменить пароль сам. Этот пароль больше нигде не показывается, сохраните его сейчас, если нужно.'
+      );
+      return loadRukData();
+    })
+    .catch(function (e) { window.alert(e.message || 'Не удалось добавить бухгалтера'); })
+    .then(function () { btn.disabled = false; });
 }
 
 function deleteAccountant(id) {
-  ACCOUNTANTS = ACCOUNTANTS.filter(function (a) { return a.id !== id; });
-  renderRukAll();
+  api('/api/accountants/' + id, { method: 'DELETE' })
+    .then(function () { return loadRukData(); })
+    .catch(function (e) { window.alert(e.message || 'Не удалось удалить бухгалтера'); });
 }
 
 /* ---------- Инициализация ---------- */
 setComposeType('expense');
-seedChatHistory();
-seedOtherEmployees();
-seedAccountants();
+tryRestoreSession();
