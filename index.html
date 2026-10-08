@@ -121,6 +121,10 @@
             <input id="r-proj-customer" type="text" placeholder="Например, ПАО «Роснефть»">
           </div>
           <div class="field">
+            <label for="r-legal-entity">Юридическое лицо</label>
+            <input id="r-legal-entity" type="text" placeholder="Например, ИП Петров С.А.">
+          </div>
+          <div class="field">
             <label for="r-fio">ФИО</label>
             <input id="r-fio" type="text" placeholder="Иванов Иван Иванович">
           </div>
@@ -313,6 +317,10 @@
                 </div>
               </div>
               <div class="field">
+                <label for="chat-contractor">Контрагент<span class="required-mark">*</span></label>
+                <input id="chat-contractor" type="text" placeholder="Юрлицо или ФИО, с кем расчёт" oninput="checkChatForm()">
+              </div>
+              <div class="field">
                 <label for="chat-comment">Комментарий</label>
                 <input id="chat-comment" type="text" placeholder="Необязательно">
               </div>
@@ -403,6 +411,10 @@
             <svg class="icon"><use href="#i-receipt"/></svg>
             <span>Все отчеты</span>
           </button>
+          <button class="side-nav-item" type="button" data-view="buh-export">
+            <svg class="icon"><use href="#i-download"/></svg>
+            <span>Выгрузка отчетов</span>
+          </button>
         </nav>
         <div class="sidebar-foot">
           <div class="sidebar-employee" id="buh-name-side"></div>
@@ -477,6 +489,30 @@
           <div class="review-list" id="buh-all-list"></div>
         </section>
 
+        <section id="view-buh-export" class="view" hidden>
+          <div class="view-head">
+            <h1>Выгрузка отчетов</h1>
+            <div class="dash-object">Управленческий отчет по каждому сотруднику за выбранный период</div>
+          </div>
+
+          <div class="card export-card">
+            <div class="export-title">Период</div>
+            <div class="export-sub">Один период — сразу для всех сотрудников ниже</div>
+            <div class="export-row">
+              <div class="field">
+                <label for="export-from">С</label>
+                <input id="export-from" type="date">
+              </div>
+              <div class="field">
+                <label for="export-to">По</label>
+                <input id="export-to" type="date">
+              </div>
+            </div>
+          </div>
+
+          <div class="export-emp-list" id="buh-export-list"></div>
+        </section>
+
       </main>
     </div>
 
@@ -492,6 +528,10 @@
       <button class="bottom-nav-item" type="button" data-view="buh-all">
         <svg class="icon"><use href="#i-receipt"/></svg>
         <span>Отчеты</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-view="buh-export">
+        <svg class="icon"><use href="#i-download"/></svg>
+        <span>Выгрузка</span>
       </button>
     </nav>
 

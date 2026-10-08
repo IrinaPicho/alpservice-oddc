@@ -96,13 +96,14 @@ function completeRegistration() {
   var position = document.getElementById('r-role').value.trim();
   var projectCode = document.getElementById('r-proj-code').value.trim();
   var projectCustomer = document.getElementById('r-proj-customer').value.trim();
+  var legalEntity = document.getElementById('r-legal-entity').value.trim();
   var mail = document.getElementById('r-mail').value.trim().toLowerCase();
   var pass = document.getElementById('r-pass').value;
   if (!fio || !mail || !pass) { window.alert('Заполните ФИО, почту и пароль.'); return; }
 
   api('/api/auth/register', {
     method: 'POST',
-    body: { email: mail, password: pass, fullName: fio, phone: phone, position: position, projectCode: projectCode, projectCustomer: projectCustomer },
+    body: { email: mail, password: pass, fullName: fio, phone: phone, position: position, projectCode: projectCode, projectCustomer: projectCustomer, legalEntity: legalEntity },
   })
     .then(function (data) {
       CURRENT_USER = data.user;
@@ -130,6 +131,8 @@ function enterBuhWorkspace(name) {
     el.classList.toggle('active', idx === 0);
   });
   showView('buh-dashboard');
+  initExportDates();
+  loadBuhExportEmployees();
   return loadBuhData();
 }
 
@@ -198,6 +201,32 @@ document.addEventListener('DOMContentLoaded', function () {
     if (lb && !lb.hidden) { closeLightbox(); }
     else if (rm && !rm.hidden) { closeReportModal(); }
   });
+
+  /* Enter в полях входа/регистрации/отправки отчета — как нажатие на основную
+     кнопку, без необходимости кликать по ней мышкой. */
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    var el = e.target;
+    if (!el || el.tagName !== 'INPUT') return;
+    if (['checkbox', 'radio', 'file', 'date'].indexOf(el.type) !== -1) return;
+
+    if (el.closest('#screen-login')) {
+      e.preventDefault();
+      attemptLogin();
+      return;
+    }
+    if (el.closest('#screen-register')) {
+      e.preventDefault();
+      completeRegistration();
+      return;
+    }
+    if (el.closest('.chat-compose')) {
+      e.preventDefault();
+      var submitBtn = document.getElementById('chat-submit');
+      if (submitBtn && !submitBtn.disabled) submitChatCard();
+      return;
+    }
+  });
 });
 
 function openDatePicker(evt) {
@@ -231,73 +260,87 @@ function togglePass(id, btn) {
 
 /* ---------- Статьи и категории ---------- */
 
-var EXPENSE_STATYI = [
-  'Аренда автотранспорта (прокат авто, каршеринг)',
-  'Аренда оборудования',
-  'Аренда помещения (вагончик, бытовка, туалет, контейнер)',
-  'Аренда спецтехники (кран, агп, пеканиска, воровайка)',
-  'ГСМ (бензин, масла, смазка)',
-  'Доставка документов (почта, курьер)',
-  'Доставка материала',
-  'Доставка оборудования',
-  'Доставка сотрудников (жд, авиа, автобус, блаблакар, такси)',
-  'Вывоз и утилизация мусора',
-  'Покупка материалов',
-  'Покупка оборудования',
-  'Покупка инструмента',
-  'Покупка спецодежды (обувь в счет оплаты)',
-  'Покупка снаряжения',
-  'Покупка канцтоваров (распечатка документов)',
-  'Покупка оргтехники (компьютер, принтер, телефон)',
-  'Покупка мебели (матрац, кухонная утварь и тд)',
-  'Проживание ИТР',
-  'Проживание Исполнителя (подрядчик)',
-  'Питание (суточные) ИТР',
-  'Питание (суточные) Исполнителя (подрядчика)',
-  'Обучение (ОТ и ТБ)',
-  'Ремонт оборудования',
-  'Ремонт транспорта',
-  'Связь, интернет',
-  'Представительские расходы (конфеты, кофе/чай, алкоголь, благодарность)',
-  'ФОТ ИТР',
-  'ФОТ Исполнителя (подрядчик)',
-  'ФОТ ПТО (смета, КСки, ППР, исполнительная документация)',
-  'ФОТ РП'
-];
-var INCOME_STATYI = ['Аванс от заказчика', 'Оплата по акту'];
-
+/* Полный список статей — прислан клиентом (файл "Статьи с разделами.xlsx"),
+   сгруппирован по разделам ровно так, как в его файле. Раздел определяет и
+   подпись в выпадающем списке, и цвет/иконку в карточках отчета. */
 var CATEGORY_GROUPS = {
-  transport:      { label: 'Транспорт',            color: '--g-transport',      soft: '--g-transport-soft',      icon: 'i-car' },
-  rent:           { label: 'Аренда и площадка',    color: '--g-rent',           soft: '--g-rent-soft',           icon: 'i-building' },
-  logistics:      { label: 'Логистика и доставка', color: '--g-logistics',      soft: '--g-logistics-soft',      icon: 'i-truck' },
-  supply:         { label: 'Закупки и снабжение',  color: '--g-supply',         soft: '--g-supply-soft',         icon: 'i-box' },
-  living:         { label: 'Проживание и питание', color: '--g-living',         soft: '--g-living-soft',         icon: 'i-bed' },
-  staff:          { label: 'Персонал и ФОТ',       color: '--g-staff',          soft: '--g-staff-soft',          icon: 'i-users' },
-  comms:          { label: 'Связь и обслуживание', color: '--g-comms',          soft: '--g-comms-soft',          icon: 'i-wifi' },
-  representation: { label: 'Представительские',    color: '--g-representation', soft: '--g-representation-soft', icon: 'i-gift' },
-  income:         { label: 'Приход',               color: '--g-income',         soft: '--g-income-soft',         icon: 'i-income' },
-  other:          { label: 'Прочее',                color: '--g-other',          soft: '--g-other-soft',          icon: 'i-other' }
+  vozvrat_pokupatelu: { label: 'Возврат покупателю',                color: '--g-other',          soft: '--g-other-soft',          icon: 'i-other' },
+  dds:                { label: 'ДДС',                                color: '--g-comms',          soft: '--g-comms-soft',          icon: 'i-other' },
+  invest:             { label: 'Инвестиционные расходы',             color: '--g-rent',            soft: '--g-rent-soft',           icon: 'i-building' },
+  commercial:         { label: 'Коммерческие расходы',                color: '--g-representation', soft: '--g-representation-soft', icon: 'i-gift' },
+  taxes:              { label: 'Налоги',                             color: '--g-staff',           soft: '--g-staff-soft',          icon: 'i-receipt' },
+  indirect:           { label: 'Постоянные косвенные расходы',        color: '--g-living',          soft: '--g-living-soft',         icon: 'i-users' },
+  direct:             { label: 'Прямые переменные расходы',           color: '--g-transport',       soft: '--g-transport-soft',      icon: 'i-truck' },
+  financial:          { label: 'Финансовые расходы',                  color: '--g-supply',          soft: '--g-supply-soft',         icon: 'i-archive' },
+  return_dds:         { label: 'Возврат (ДДС)',                       color: '--g-logistics',       soft: '--g-logistics-soft',      icon: 'i-other' },
+  invest_income:      { label: 'Доход от инвестиционной деятельности',color: '--g-rent',            soft: '--g-rent-soft',           icon: 'i-building' },
+  main_income:        { label: 'Доход от основной деятельности',      color: '--g-income',          soft: '--g-income-soft',         icon: 'i-income' },
+  other_income:       { label: 'Прочие доходы',                       color: '--g-other',           soft: '--g-other-soft',          icon: 'i-other' },
+  other:              { label: 'Прочее',                              color: '--g-other',           soft: '--g-other-soft',          icon: 'i-other' }
+};
+
+var STATYA_SECTIONS = {
+  expense: [
+    { key: 'vozvrat_pokupatelu', label: 'Возврат покупателю', items: ['Возврат покупателю'] },
+    { key: 'dds', label: 'ДДС', items: ['дивиденды', 'кредит, займ', 'обеспечение на ЭТП (ДДС)'] },
+    { key: 'invest', label: 'Инвестиционные расходы', items: [
+      '% по лизингу', 'лизинг', 'НМА (расходы на нематериальные активы)', 'обучение', 'покупка мебели',
+      'покупка недвижимости', 'покупка оборудования (на склад)', 'покупка оргтехники', 'покупка ПО', 'покупка транспора'
+    ] },
+    { key: 'commercial', label: 'Коммерческие расходы', items: [
+      'PR (КР)', 'аренда автотранспорта (КР)', 'БГ вознагрождение', 'выставка (КР)', 'ГСМ (КР)',
+      'доставка сотрудников (КР)', 'маркетинг (реклама) (КР)', 'питание сотрудников (КР)',
+      'представительские расходы (КР)', 'проживание сотрудника (КР)', 'тендерные расходы (КР)'
+    ] },
+    { key: 'taxes', label: 'Налоги', items: [
+      'АУСН', 'Налог на дивиденды', 'Налог на имущество', 'Налог на прибыль (доход)',
+      'НДС (Налог на добавленную стоимость)', 'НДФЛ (Налог на фонд оплаты труда)', 'Соцналоги', 'УСН',
+      'Штрафы, пени, неустойки по налогам'
+    ] },
+    { key: 'indirect', label: 'Постоянные косвенные расходы (общехозяйственные, операционные, административные)', items: [
+      'аренда офиса', 'аренда склада', 'аренда спецтехники', 'аренда транспорта', 'ГСМ для нужд офиса',
+      'доставка документов', 'канцтовары, типография (косв)', 'консалтинг', 'консультация', 'Подбор персонала',
+      'премия АУП', 'Программное обеспечение', 'Расходы на офис', 'ремонт оборудования', 'ремонт транспорта',
+      'связь, интернет', 'ФОТ АУП', 'ФОТ исполнителя (подрядчика)'
+    ] },
+    { key: 'direct', label: 'Прямые переменные расходы (общепроизводственные)', items: [
+      'аренда автотранспорта (прямые)', 'аренда оборудования (прямые)', 'аренда помещения (прямые)',
+      'аренда спецтехники (прямые)', 'вывоз и утилизация мусора', 'ГСМ (прямые)', 'доставка документов (прямые)',
+      'доставка материалов (тмц)', 'доставка оборудования (мтр)', 'доставка сотрудников (прямые)', 'инструменты',
+      'канцтовары, типография (прямые)', 'комиссия за переводы (прямые)', 'конвертация (прямые)', 'материалы',
+      'налоги подрядчика', 'непредвиденные расходы', 'обучение (ОТ и тд и тп)', 'питание исполнителя',
+      'питание итр', 'покупка оборудования', 'представительские расходы', 'премия подрядчика',
+      'проживание исполнителя', 'проживание ИТР', 'ремонт автотранспорта', 'ремонт оборудования (прямые)',
+      'связь, интернет (прямые)', 'снаряжение', 'спецодежда', 'ФОТ исполнитель (подрядчик)(прямые)',
+      'ФОТ ИТР (подрядчик)', 'ФОТ ПТО (подрядчик)', 'ФОТ РП (подрядчик)', 'штрафы (прямые)'
+    ] },
+    { key: 'financial', label: 'Финансовые расходы', items: [
+      '% кредиты, займы', '% по факторингу', 'БГ на обеспечение аванса', 'БГ на обеспечение гарантийных обязательств',
+      'БГ на обеспечение исполнение договора', 'БГ на обеспечение тендера', 'взносы', 'комиссия за переводы',
+      'конвертация', 'перечисление депозита', 'перечисление под отчет', 'получение БГ', 'пошлины',
+      'расходы на оптимизацию (УУ)', 'РКО', 'страхование'
+    ] }
+  ],
+  income: [
+    { key: 'return_dds', label: 'Возврат (ДДС)', items: [
+      'возврат депозита', 'возврат обеспечения с ЭТП', 'возврат подотчетных средств (ДДС)', 'займ от собственика', 'кредит, займ'
+    ] },
+    { key: 'invest_income', label: 'Доход от инвестиционной деятельности', items: ['доход от НМА', 'продажа активов'] },
+    { key: 'main_income', label: 'Доход от основной деятельности компании', items: ['аванс', 'Возврат от поставщика', 'оплата'] },
+    { key: 'other_income', label: 'Прочие доходы', items: ['% от депозита'] }
+  ]
 };
 
 var STATYA_GROUP = {};
-[
-  ['transport', ['Аренда автотранспорта (прокат авто, каршеринг)', 'Аренда спецтехники (кран, агп, пеканиска, воровайка)', 'ГСМ (бензин, масла, смазка)', 'Доставка сотрудников (жд, авиа, автобус, блаблакар, такси)', 'Ремонт транспорта']],
-  ['rent', ['Аренда оборудования', 'Аренда помещения (вагончик, бытовка, туалет, контейнер)']],
-  ['logistics', ['Доставка документов (почта, курьер)', 'Доставка материала', 'Доставка оборудования', 'Вывоз и утилизация мусора']],
-  ['supply', ['Покупка материалов', 'Покупка оборудования', 'Покупка инструмента', 'Покупка спецодежды (обувь в счет оплаты)', 'Покупка снаряжения', 'Покупка канцтоваров (распечатка документов)', 'Покупка оргтехники (компьютер, принтер, телефон)', 'Покупка мебели (матрац, кухонная утварь и тд)', 'Ремонт оборудования']],
-  ['living', ['Проживание ИТР', 'Проживание Исполнителя (подрядчик)', 'Питание (суточные) ИТР', 'Питание (суточные) Исполнителя (подрядчика)']],
-  ['staff', ['ФОТ ИТР', 'ФОТ Исполнителя (подрядчик)', 'ФОТ ПТО (смета, КСки, ППР, исполнительная документация)', 'ФОТ РП', 'Обучение (ОТ и ТБ)']],
-  ['comms', ['Связь, интернет']],
-  ['representation', ['Представительские расходы (конфеты, кофе/чай, алкоголь, благодарность)']],
-  ['income', ['Аванс от заказчика', 'Оплата по акту']]
-].forEach(function (pair) {
-  var group = pair[0];
-  pair[1].forEach(function (statya) { STATYA_GROUP[statya] = group; });
+Object.keys(STATYA_SECTIONS).forEach(function (type) {
+  STATYA_SECTIONS[type].forEach(function (section) {
+    section.items.forEach(function (statya) { STATYA_GROUP[statya] = section.key; });
+  });
 });
 
 function groupFor(statya, type) {
   var key = STATYA_GROUP[statya];
-  if (!key) key = type === 'income' ? 'income' : 'other';
+  if (!key) key = type === 'income' ? 'other_income' : 'other';
   return CATEGORY_GROUPS[key] || CATEGORY_GROUPS.other;
 }
 
@@ -407,6 +450,7 @@ function renderReportCard(report) {
     '</div>' +
     '<div class="msg-card-title">' + escapeHtml(report.statya) + '</div>' +
     '<div class="msg-card-sum">' + report.sum.toLocaleString('ru-RU') + ' ₽</div>' +
+    (report.contractor ? '<div class="msg-card-comment">Контрагент: ' + escapeHtml(report.contractor) + '</div>' : '') +
     (report.comment ? '<div class="msg-card-comment">' + escapeHtml(report.comment) + '</div>' : '') +
     '<div class="msg-time">' + formatDate(report.dateIso) + '</div>';
   wrap.appendChild(card);
@@ -421,9 +465,13 @@ function scrollChatToBottom() {
 /* ---------- Компоновка формы ---------- */
 
 function populateStatyaSelect(type) {
-  var list = type === 'expense' ? EXPENSE_STATYI : INCOME_STATYI;
+  var sections = STATYA_SECTIONS[type] || [];
   var sel = document.getElementById('chat-statya');
-  sel.innerHTML = '<option>Выберите статью</option>' + list.map(function (s) { return '<option>' + s + '</option>'; }).join('');
+  sel.innerHTML = '<option>Выберите статью</option>' + sections.map(function (section) {
+    return '<optgroup label="' + escapeHtml(section.label) + '">' +
+      section.items.map(function (s) { return '<option>' + escapeHtml(s) + '</option>'; }).join('') +
+      '</optgroup>';
+  }).join('');
 }
 
 function activateComposeTab(type) {
@@ -441,6 +489,7 @@ function resetComposeFields() {
   document.getElementById('chat-statya').selectedIndex = 0;
   document.getElementById('chat-sum').value = '';
   document.getElementById('chat-date').value = '';
+  document.getElementById('chat-contractor').value = '';
   document.getElementById('chat-comment').value = '';
   document.getElementById('chat-file').value = '';
   selectedFiles = [];
@@ -463,8 +512,9 @@ function checkChatForm() {
   var statya = document.getElementById('chat-statya').value;
   var sum = document.getElementById('chat-sum').value;
   var date = document.getElementById('chat-date').value;
+  var contractor = document.getElementById('chat-contractor').value.trim();
   var hasFile = selectedFiles.length > 0 || keepExistingAttachment;
-  var valid = statya && statya.indexOf('Выберите') !== 0 && sum !== '' && Number(sum) > 0 && date !== '' && hasFile;
+  var valid = statya && statya.indexOf('Выберите') !== 0 && sum !== '' && Number(sum) > 0 && date !== '' && contractor !== '' && hasFile;
   document.getElementById('chat-submit').disabled = !valid;
 }
 
@@ -536,6 +586,7 @@ function startEditReport(id) {
   document.getElementById('chat-statya').value = report.statya;
   document.getElementById('chat-sum').value = report.sum;
   document.getElementById('chat-date').value = report.dateIso;
+  document.getElementById('chat-contractor').value = report.contractor || '';
   document.getElementById('chat-comment').value = report.comment;
   document.getElementById('chat-file').value = '';
   selectedFiles = [];
@@ -567,13 +618,15 @@ function submitChatCard() {
   var statyaEl = document.getElementById('chat-statya');
   var sumEl = document.getElementById('chat-sum');
   var dateEl = document.getElementById('chat-date');
+  var contractorEl = document.getElementById('chat-contractor');
   var commentEl = document.getElementById('chat-comment');
   var submitBtn = document.getElementById('chat-submit');
 
   var statya = statyaEl.value;
   var sum = Number(sumEl.value);
+  var contractor = contractorEl.value.trim();
   var comment = commentEl.value.trim();
-  if (!statya || statya.indexOf('Выберите') === 0 || !sum || !dateEl.value) { return; }
+  if (!statya || statya.indexOf('Выберите') === 0 || !sum || !dateEl.value || !contractor) { return; }
 
   var editingReport = editingId ? findReport(editingId) : null;
   var hasFile = selectedFiles.length > 0 || keepExistingAttachment;
@@ -585,7 +638,7 @@ function submitChatCard() {
   if (editingReport) {
     api('/api/reports/' + editingReport.id, {
       method: 'PATCH',
-      body: { statya: statya, sum: sum, dateIso: dateIso, comment: comment },
+      body: { statya: statya, sum: sum, dateIso: dateIso, contractor: contractor, comment: comment },
     })
       .then(function () { return loadEmployeeData(); })
       .then(function () { setComposeType(activeComposeType); })
@@ -598,7 +651,7 @@ function submitChatCard() {
     .then(function (fileIds) {
       return api('/api/reports', {
         method: 'POST',
-        body: { type: activeComposeType, statya: statya, sum: sum, dateIso: dateIso, comment: comment, fileIds: fileIds },
+        body: { type: activeComposeType, statya: statya, sum: sum, dateIso: dateIso, contractor: contractor, comment: comment, fileIds: fileIds },
       });
     })
     .then(function () { return loadEmployeeData(); })
@@ -726,6 +779,7 @@ function renderRecent() {
     return '<div class="recent-row" onclick="openReportModal(\'' + r.id + '\')">' + catIconChip(group) +
       '<div class="recent-info"><div class="recent-title">' + escapeHtml(r.statya) + '</div>' +
       '<div class="recent-meta">' + formatDate(r.dateIso) + ' | ' + statusHtml + '</div>' +
+      '<div class="recent-meta">Отчет №' + r.reportNo + '</div>' +
       reasonHtml +
       '</div>' +
       '<div class="recent-amount' + (r.type === 'income' ? ' is-income' : '') + '">' + sign + fmtSum(r.sum) + ' ₽</div></div>';
@@ -740,7 +794,7 @@ function renderRecent() {
 function reportDetailBodyHtml(r) {
   var group = groupFor(r.statya, r.type);
   var sign = r.type === 'income' ? '+' : '−';
-  var typeLabel = r.type === 'expense' ? 'Отчет по расходу' : 'Приход';
+  var typeLabel = (r.type === 'expense' ? 'Отчет по расходу' : 'Приход') + ' №' + r.reportNo;
   var filesHtml = (r.files && r.files.length)
     ? '<div class="review-attachments">' + r.files.map(attachmentThumbHtml).join('') + '</div>'
     : '<div class="review-files-empty">Без вложения</div>';
@@ -757,6 +811,7 @@ function reportDetailBodyHtml(r) {
     '<div class="review-meta" style="margin:4px 0 10px">Дата: ' + formatDate(r.dateIso) + '</div>' +
     '<div class="review-sum' + (r.type === 'income' ? ' is-income' : '') + '" style="margin-bottom:10px">' + sign + fmtSum(r.sum) + ' ₽</div>' +
     statusBadge +
+    (r.contractor ? '<div class="review-comment" style="margin-top:12px"><span class="review-comment-label">Контрагент:</span> ' + escapeHtml(r.contractor) + '</div>' : '') +
     (r.comment ? '<div class="review-comment" style="margin-top:12px"><span class="review-comment-label">Комментарий:</span> ' + escapeHtml(r.comment) + '</div>' : '') +
     reasonHtml +
     filesHtml +
@@ -799,6 +854,7 @@ function renderAll() {
 
 var buhFilter = 'all';
 var expandedReviewIds = {}; // id -> true — отчеты в "Все отчеты", развёрнутые кликом для проверки/правки решения
+var BUH_EMPLOYEES = []; // список сотрудников проекта — для страницы "Выгрузка отчетов"
 
 function findAnyReport(id) {
   for (var i = 0; i < ALL_REPORTS.length; i++) {
@@ -921,6 +977,7 @@ function reviewCardHtml(r, opts) {
         '<div><div class="msg-card-type">' + typeLabel + ' №' + r.reportNo + '</div></div></div>' +
       '<div class="review-title">' + escapeHtml(r.statya) + '</div>' +
       '<div class="review-sum' + (r.type === 'income' ? ' is-income' : '') + '">' + sign + fmtSum(r.sum) + ' ₽</div>' +
+      (r.contractor ? '<div class="review-comment"><span class="review-comment-label">Контрагент:</span> ' + escapeHtml(r.contractor) + '</div>' : '') +
       (r.comment ? '<div class="review-comment"><span class="review-comment-label">Комментарий:</span> ' + escapeHtml(r.comment) + '</div>' : '') +
       reviewerCommentHtml +
       filesHtml +
@@ -953,7 +1010,8 @@ function renderBuhDashboardQueue() {
     var group = groupFor(r.statya, r.type);
     return '<div class="recent-row" onclick="showView(\'buh-queue\')">' + catIconChip(group) +
       '<div class="recent-info"><div class="recent-title">' + escapeHtml(r.employee) + ' · ' + escapeHtml(r.statya) + '</div>' +
-      '<div class="recent-meta">' + formatDate(r.dateIso) + ' | На проверке</div></div>' +
+      '<div class="recent-meta">' + formatDate(r.dateIso) + ' | На проверке</div>' +
+      '<div class="recent-meta">Отчет по расходу №' + r.reportNo + '</div></div>' +
       '<div class="recent-amount">' + fmtSum(r.sum) + ' ₽</div></div>';
   }).join('');
 }
@@ -995,6 +1053,60 @@ function loadBuhData() {
     });
     renderBuhAll();
   });
+}
+
+/* ---------- Выгрузка в Excel для управленческого учета (кабинет бухгалтера) ---------- */
+
+function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+function isoDate(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+
+/* По умолчанию — текущий месяц, чтобы не заставлять каждый раз выбирать период заново. */
+function initExportDates() {
+  var fromEl = document.getElementById('export-from');
+  var toEl = document.getElementById('export-to');
+  if (!fromEl || fromEl.value) return;
+  var now = new Date();
+  fromEl.value = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  toEl.value = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+}
+
+/* Список сотрудников для страницы "Выгрузка отчетов" — один раз при входе
+   в кабинет бухгалтера (список почти не меняется, перезагружать не нужно). */
+function loadBuhExportEmployees() {
+  return api('/api/reports/employees').then(function (data) {
+    BUH_EMPLOYEES = data.employees || [];
+    renderBuhExportList();
+  }).catch(function () { /* страница просто останется пустой, не критично */ });
+}
+
+function renderBuhExportList() {
+  var wrap = document.getElementById('buh-export-list');
+  if (!wrap) return;
+  if (!BUH_EMPLOYEES.length) {
+    wrap.innerHTML = '<div class="recent-empty">В проекте пока нет ни одного сотрудника.</div>';
+    return;
+  }
+  wrap.innerHTML = BUH_EMPLOYEES.map(function (emp) {
+    return '<div class="export-emp-row">' +
+      '<span class="export-emp-icon"><svg class="icon"><use href="#i-users"/></svg></span>' +
+      '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div></div>' +
+      '<div class="export-emp-actions">' +
+        '<button class="btn-uo" type="button" onclick="downloadExport(\'' + emp.id + '\')">УО</button>' +
+        '<button class="btn-ao1" type="button" disabled title="Скоро — официальный бланк АО-1">АО-1</button>' +
+      '</div></div>';
+  }).join('');
+}
+
+/* Выгрузка Excel (управленческий учет) по одному сотруднику — общей выгрузки
+   по всем сотрудникам сразу нет (решили не делать, это усложнение). */
+function downloadExport(employeeId) {
+  if (!employeeId) return;
+  var from = document.getElementById('export-from').value;
+  var to = document.getElementById('export-to').value;
+  var params = ['employeeId=' + encodeURIComponent(employeeId)];
+  if (from) params.push('from=' + encodeURIComponent(from));
+  if (to) params.push('to=' + encodeURIComponent(to));
+  window.location.href = '/api/reports/export?' + params.join('&');
 }
 
 function renderBuhAll() {

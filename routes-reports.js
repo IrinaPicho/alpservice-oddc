@@ -1,4 +1,5 @@
 const express = require('express');
+const ExcelJS = require('exceljs');
 const { pool } = require('./db');
 const { requireAuth, requireRole } = require('./jwt');
 
@@ -29,18 +30,20 @@ function serializeReport(row, employee) {
     statya: row.statya,
     sum: Number(row.sum),
     dateIso: row.date_iso,
+    contractor: row.contractor,
     comment: row.comment,
     status: row.status,
     reviewerComment: row.reviewer_comment,
     createdAt: row.created_at,
+    files: row.files || [],
   };
 }
 
 /* ---------- Сотрудник: создать отчет ---------- */
 router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
-  const { type, statya, sum, dateIso, comment, fileIds } = req.body || {};
-  if (!type || !statya || !sum || !dateIso) {
-    return res.status(400).json({ error: 'Заполните статью, сумму и дату' });
+  const { type, statya, sum, dateIso, contractor, comment, fileIds } = req.body || {};
+  if (!type || !statya || !sum || !dateIso || !contractor) {
+    return res.status(400).json({ error: 'Заполните статью, сумму, дату и контрагента' });
   }
   try {
     const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
@@ -54,9 +57,9 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
     const reportNo = seqResult.rows[0].next_no;
 
     const result = await pool.query(
-      `INSERT INTO reports (employee_id, report_no, project_code, type, statya, sum, date_iso, comment, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending') RETURNING *`,
-      [req.user.sub, reportNo, projectCode, type, statya, sum, dateIso, comment || '']
+      `INSERT INTO reports (employee_id, report_no, project_code, type, statya, sum, date_iso, contractor, comment, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending') RETURNING *`,
+      [req.user.sub, reportNo, projectCode, type, statya, sum, dateIso, contractor, comment || '']
     );
     const report = result.rows[0];
 
@@ -83,7 +86,7 @@ router.get('/mine', requireAuth, requireRole('sotr'), async (req, res) => {
 
 /* ---------- Сотрудник: отредактировать и повторно отправить отклонённый/любой свой отчет ---------- */
 router.patch('/:id', requireAuth, requireRole('sotr'), async (req, res) => {
-  const { statya, sum, dateIso, comment } = req.body || {};
+  const { statya, sum, dateIso, contractor, comment } = req.body || {};
   try {
     const existing = await pool.query('SELECT * FROM reports WHERE id = $1 AND employee_id = $2', [req.params.id, req.user.sub]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'Отчет не найден' });
@@ -92,10 +95,10 @@ router.patch('/:id', requireAuth, requireRole('sotr'), async (req, res) => {
     }
     const result = await pool.query(
       `UPDATE reports SET statya = COALESCE($1, statya), sum = COALESCE($2, sum),
-        date_iso = COALESCE($3, date_iso), comment = COALESCE($4, comment),
+        date_iso = COALESCE($3, date_iso), contractor = COALESCE($4, contractor), comment = COALESCE($5, comment),
         status = 'pending', reviewer_comment = '', updated_at = now()
-       WHERE id = $5 RETURNING *`,
-      [statya, sum, dateIso, comment, req.params.id]
+       WHERE id = $6 RETURNING *`,
+      [statya, sum, dateIso, contractor, comment, req.params.id]
     );
     res.json({ report: serializeReport(result.rows[0]) });
   } catch (e) {
@@ -132,6 +135,111 @@ router.get('/', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Не удалось загрузить отчеты' });
+  }
+});
+
+/* ---------- Бухгалтер: список сотрудников своего проекта ----------
+   Нужен для страницы "Выгрузка отчетов" — показать список, по кому можно
+   сделать выгрузку, без отдельного запроса по каждому отчету. */
+router.get('/employees', requireAuth, requireRole('buh'), async (req, res) => {
+  try {
+    const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
+    const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+
+    const result = await pool.query(
+      "SELECT id, full_name FROM users WHERE role = 'sotr' AND project_code = $1 ORDER BY full_name",
+      [projectCode]
+    );
+    res.json({ employees: result.rows.map((r) => ({ id: r.id, fullName: r.full_name })) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Не удалось загрузить список сотрудников' });
+  }
+});
+
+/* ---------- Бухгалтер: выгрузка в Excel для управленческого учета ----------
+   Таблица строго по шаблону клиента: 9 колонок в этом порядке, названия не
+   менять. По умолчанию — только одобренные отчеты (неподтвержденные решения
+   еще не "случились" официально), за период from..to (по дате операции).
+   Выгрузка всегда по одному конкретному сотруднику (employeeId) — общей
+   выгрузки по всем сотрудникам сразу нет (решили не делать, это усложнение). */
+router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
+  const { from, to, status, employeeId } = req.query;
+  if (!employeeId) {
+    return res.status(400).json({ error: 'Не указан сотрудник для выгрузки' });
+  }
+  try {
+    const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
+    const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+
+    const employeeResult = await pool.query(
+      "SELECT full_name FROM users WHERE id = $1 AND role = 'sotr' AND project_code = $2",
+      [employeeId, projectCode]
+    );
+    if (!employeeResult.rows[0]) {
+      return res.status(404).json({ error: 'Сотрудник не найден' });
+    }
+    const employeeName = employeeResult.rows[0].full_name || 'sotrudnik';
+
+    let query = `SELECT r.*, u.full_name AS employee_full_name, u.legal_entity AS employee_legal_entity,
+                   u.project_customer AS employee_project_customer
+                 FROM reports r JOIN users u ON u.id = r.employee_id
+                 WHERE r.project_code = $1 AND r.employee_id = $2`;
+    const params = [projectCode, employeeId];
+
+    params.push(status && status !== 'all' ? status : 'approved');
+    query += ` AND r.status = $${params.length}`;
+
+    if (from) { params.push(from); query += ` AND r.date_iso >= $${params.length}`; }
+    if (to) { params.push(to); query += ` AND r.date_iso <= $${params.length}`; }
+    query += ' ORDER BY r.date_iso ASC, r.created_at ASC';
+
+    const result = await pool.query(query, params);
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Управленческий учет');
+    ws.columns = [
+      { header: 'Дата операции', key: 'dateOperation', width: 14 },
+      { header: 'Сумма операции', key: 'sum', width: 16 },
+      { header: 'Статья', key: 'statya', width: 34 },
+      { header: 'Назначение платежа', key: 'comment', width: 36 },
+      { header: 'Проект', key: 'project', width: 30 },
+      { header: 'Контрагент', key: 'contractor', width: 26 },
+      { header: 'Банковский счёт', key: 'account', width: 26 },
+      { header: 'Дата начисления', key: 'accrualDate', width: 16 },
+      { header: 'Юридическое лицо', key: 'legalEntity', width: 26 },
+    ];
+    ws.getRow(1).font = { bold: true };
+
+    result.rows.forEach((r) => {
+      ws.addRow({
+        dateOperation: new Date(r.date_iso),
+        sum: r.type === 'income' ? Number(r.sum) : -Number(r.sum),
+        statya: r.statya,
+        comment: r.comment || '',
+        project: [r.project_code, r.employee_project_customer].filter(Boolean).join(' — '),
+        contractor: r.contractor || '',
+        account: r.employee_full_name || '',
+        accrualDate: new Date(r.created_at),
+        legalEntity: r.employee_legal_entity || '',
+      });
+    });
+    ws.getColumn('dateOperation').numFmt = 'dd.mm.yyyy';
+    ws.getColumn('accrualDate').numFmt = 'dd.mm.yyyy';
+    ws.getColumn('sum').numFmt = '#,##0.00';
+
+    const asciiName = 'upravlenchesky-uchet-' + (from || 'vse') + '_' + (to || 'vse') + '.xlsx';
+    const prettyName = 'УО ' + employeeName + ' ' + (from || 'весь период') + '—' + (to || 'весь период') + '.xlsx';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="' + asciiName + '"; filename*=UTF-8\'\'' + encodeURIComponent(prettyName)
+    );
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Не удалось сформировать выгрузку' });
   }
 });
 

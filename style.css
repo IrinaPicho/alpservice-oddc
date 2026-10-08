@@ -590,3 +590,40 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .balance-edit-row input:focus { border-color: var(--brand-red); outline: none; }
 .btn-sm { width: auto; height: 44px; padding-inline: 18px; margin-top: 0; white-space: nowrap; }
+
+/* ---------- Выгрузка в Excel (кабинет бухгалтера) ---------- */
+.export-card { padding: 18px 22px; gap: 10px; margin-bottom: 18px; }
+.export-title { font-family: var(--font-display); font-weight: 600; font-size: 16px; color: var(--ink); }
+.export-sub { font-size: 13px; color: var(--ink-soft); margin-bottom: 4px; }
+.export-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.export-row .field { flex: 1 1 140px; margin: 0; }
+.export-row input {
+  width: 100%; height: 44px; border-radius: var(--radius-sm); border: 1px solid var(--line);
+  background: var(--card); color: var(--ink); padding-inline: 12px; font-size: 15px; font-family: var(--font-body);
+}
+.export-row input:focus { border-color: var(--brand-red); outline: none; }
+
+.export-emp-list { display: flex; flex-direction: column; gap: 8px; }
+.export-emp-row {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 13px 16px; box-shadow: var(--shadow-card);
+}
+.export-emp-icon {
+  width: 32px; height: 32px; border-radius: 0; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--card-sunk); color: var(--brand-red);
+}
+.export-emp-icon .icon { width: 15px; height: 15px; stroke-width: 1.7; }
+.export-emp-info { flex: 1; min-width: 0; }
+.export-emp-name { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.export-emp-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.btn-uo, .btn-ao1 {
+  height: 38px; padding-inline: 16px; border-radius: var(--radius-sm); border: none;
+  font-family: var(--font-display); font-weight: 600; font-size: 13px; cursor: pointer;
+  transition: opacity var(--dur) var(--ease);
+  white-space: nowrap;
+}
+.btn-uo { background: var(--brand-red); color: #ffffff; }
+.btn-uo:hover { opacity: .92; }
+.btn-ao1 { background: var(--card-sunk); color: var(--ink-faint); cursor: not-allowed; }

@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
   tabel_number    text,            -- табельный номер — нужен для АО-1
   project_code    text,            -- шифр проекта: у sotr — свой проект, у buh — проект, который проверяет
   project_customer text,           -- заказчик по проекту (для sotr)
+  legal_entity    text,            -- юрлицо компании, под которым оформлен сотрудник (для таблицы управленческого учета)
   must_change_password boolean NOT NULL DEFAULT false, -- true после создания руководителем, пока бухгалтер не задал свой пароль
   advance_amount  numeric(12,2) NOT NULL DEFAULT 0, -- сколько выдано на руки сотруднику (вводит сам), для остатка на дашборде
   created_at      timestamptz NOT NULL DEFAULT now()
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS reports (
   statya            text NOT NULL,
   sum               numeric(12,2) NOT NULL,
   date_iso          date NOT NULL,
+  contractor        text NOT NULL DEFAULT '', -- контрагент (юрлицо или физлицо), для таблицы управленческого учета
   comment           text DEFAULT '',
   status            text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
   reviewer_id       uuid REFERENCES users(id),
