@@ -626,4 +626,7 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .btn-uo { background: var(--brand-red); color: #ffffff; }
 .btn-uo:hover { opacity: .92; }
-.btn-ao1 { background: var(--card-sunk); color: var(--ink-faint); cursor: not-allowed; }
+.btn-ao1 { background: var(--card-sunk); color: var(--ink); border: 1px solid var(--line); }
+.btn-ao1:hover { border-color: var(--brand-red); color: var(--brand-red); }
+.btn-ao1:disabled { color: var(--ink-faint); cursor: not-allowed; }
+.btn-ao1:disabled:hover { border-color: var(--line); color: var(--ink-faint); }

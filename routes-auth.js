@@ -7,7 +7,7 @@ const router = express.Router();
 
 /* ---------- Регистрация сотрудника (самостоятельная, роль всегда 'sotr') ---------- */
 router.post('/register', async (req, res) => {
-  const { email, password, fullName, phone, position, projectCode, projectCustomer, legalEntity } = req.body || {};
+  const { email, password, fullName, phone, position, projectCode, projectCustomer, legalEntity, tabelNumber } = req.body || {};
   if (!email || !password || !fullName) {
     return res.status(400).json({ error: 'Укажите почту, пароль и ФИО' });
   }
@@ -19,10 +19,10 @@ router.post('/register', async (req, res) => {
     }
     const hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash, role, full_name, phone, position, project_code, project_customer, legal_entity)
-       VALUES ($1, $2, 'sotr', $3, $4, $5, $6, $7, $8)
-       RETURNING id, email, role, full_name, project_code, project_customer, legal_entity`,
-      [normalizedEmail, hash, fullName, phone || null, position || null, projectCode || null, projectCustomer || null, legalEntity || null]
+      `INSERT INTO users (email, password_hash, role, full_name, phone, position, project_code, project_customer, legal_entity, tabel_number)
+       VALUES ($1, $2, 'sotr', $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, email, role, full_name, project_code, project_customer, legal_entity, tabel_number`,
+      [normalizedEmail, hash, fullName, phone || null, position || null, projectCode || null, projectCustomer || null, legalEntity || null, tabelNumber || null]
     );
     const user = result.rows[0];
     const token = issueToken({ id: user.id, role: user.role, email: user.email });

@@ -2,6 +2,7 @@ const express = require('express');
 const ExcelJS = require('exceljs');
 const { pool } = require('./db');
 const { requireAuth, requireRole } = require('./jwt');
+const { buildAo1Workbook } = require('./ao1');
 
 const router = express.Router();
 
@@ -240,6 +241,68 @@ router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Не удалось сформировать выгрузку' });
+  }
+});
+
+/* ---------- Бухгалтер: официальный бланк АО-1 ----------
+   Унифицированная форма №АО-1 (постановление Госкомстата России от 01.08.2001
+   №55), заполненная данными одного сотрудника за период — одобренные отчеты
+   по расходам (приходы в АО-1 не включаются, это форма только по авансу). */
+router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
+  const { from, to, employeeId } = req.query;
+  if (!employeeId) {
+    return res.status(400).json({ error: 'Не указан сотрудник для выгрузки' });
+  }
+  try {
+    const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
+    const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+
+    const employeeResult = await pool.query(
+      "SELECT full_name, tabel_number, position, legal_entity, project_customer, advance_amount FROM users WHERE id = $1 AND role = 'sotr' AND project_code = $2",
+      [employeeId, projectCode]
+    );
+    if (!employeeResult.rows[0]) {
+      return res.status(404).json({ error: 'Сотрудник не найден' });
+    }
+    const emp = employeeResult.rows[0];
+
+    const directorResult = await pool.query("SELECT full_name FROM users WHERE role = 'ruk' ORDER BY created_at LIMIT 1");
+    const directorName = directorResult.rows[0] ? directorResult.rows[0].full_name : '';
+
+    let query = `SELECT * FROM reports WHERE project_code = $1 AND employee_id = $2 AND type = 'expense' AND status = 'approved'`;
+    const params = [projectCode, employeeId];
+    if (from) { params.push(from); query += ` AND date_iso >= $${params.length}`; }
+    if (to) { params.push(to); query += ` AND date_iso <= $${params.length}`; }
+    query += ' ORDER BY date_iso ASC, created_at ASC';
+    const result = await pool.query(query, params);
+
+    const projectLabel = [projectCode, emp.project_customer].filter(Boolean).join(' — ');
+    const wb = await buildAo1Workbook({
+      employee: {
+        fullName: emp.full_name,
+        tabelNumber: emp.tabel_number,
+        position: emp.position,
+        legalEntity: emp.legal_entity,
+        advanceAmount: emp.advance_amount,
+      },
+      reports: result.rows,
+      projectLabel,
+      directorName,
+      periodTo: to,
+    });
+
+    const asciiName = 'ao1-' + (from || 'vse') + '_' + (to || 'vse') + '.xlsx';
+    const prettyName = 'АО-1 ' + emp.full_name + ' ' + (from || 'весь период') + '—' + (to || 'весь период') + '.xlsx';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="' + asciiName + '"; filename*=UTF-8\'\'' + encodeURIComponent(prettyName)
+    );
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Не удалось сформировать АО-1' });
   }
 });
 

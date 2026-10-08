@@ -97,13 +97,14 @@ function completeRegistration() {
   var projectCode = document.getElementById('r-proj-code').value.trim();
   var projectCustomer = document.getElementById('r-proj-customer').value.trim();
   var legalEntity = document.getElementById('r-legal-entity').value.trim();
+  var tabelNumber = document.getElementById('r-tabel-number').value.trim();
   var mail = document.getElementById('r-mail').value.trim().toLowerCase();
   var pass = document.getElementById('r-pass').value;
   if (!fio || !mail || !pass) { window.alert('Заполните ФИО, почту и пароль.'); return; }
 
   api('/api/auth/register', {
     method: 'POST',
-    body: { email: mail, password: pass, fullName: fio, phone: phone, position: position, projectCode: projectCode, projectCustomer: projectCustomer, legalEntity: legalEntity },
+    body: { email: mail, password: pass, fullName: fio, phone: phone, position: position, projectCode: projectCode, projectCustomer: projectCustomer, legalEntity: legalEntity, tabelNumber: tabelNumber },
   })
     .then(function (data) {
       CURRENT_USER = data.user;
@@ -1092,7 +1093,7 @@ function renderBuhExportList() {
       '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div></div>' +
       '<div class="export-emp-actions">' +
         '<button class="btn-uo" type="button" onclick="downloadExport(\'' + emp.id + '\')">УО</button>' +
-        '<button class="btn-ao1" type="button" disabled title="Скоро — официальный бланк АО-1">АО-1</button>' +
+        '<button class="btn-ao1" type="button" onclick="downloadAo1(\'' + emp.id + '\')">АО-1</button>' +
       '</div></div>';
   }).join('');
 }
@@ -1107,6 +1108,18 @@ function downloadExport(employeeId) {
   if (from) params.push('from=' + encodeURIComponent(from));
   if (to) params.push('to=' + encodeURIComponent(to));
   window.location.href = '/api/reports/export?' + params.join('&');
+}
+
+/* Официальный бланк АО-1 по одному сотруднику за выбранный период —
+   тот же общий период сверху страницы, что и для "УО". */
+function downloadAo1(employeeId) {
+  if (!employeeId) return;
+  var from = document.getElementById('export-from').value;
+  var to = document.getElementById('export-to').value;
+  var params = ['employeeId=' + encodeURIComponent(employeeId)];
+  if (from) params.push('from=' + encodeURIComponent(from));
+  if (to) params.push('to=' + encodeURIComponent(to));
+  window.location.href = '/api/reports/ao1?' + params.join('&');
 }
 
 function renderBuhAll() {
