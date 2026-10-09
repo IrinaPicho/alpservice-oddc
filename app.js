@@ -192,6 +192,8 @@ document.addEventListener('DOMContentLoaded', function () {
     showView('report');
     setComposeType(activeComposeType);
   }
+  limitChatDateToToday();
+  initInstallApp();
   document.getElementById('add-btn-desktop').addEventListener('click', openCompose);
   document.getElementById('add-btn-mobile').addEventListener('click', openCompose);
   document.getElementById('dashboard-send-btn').addEventListener('click', openCompose);
@@ -199,8 +201,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (e.key !== 'Escape') return;
     var lb = document.getElementById('lightbox-overlay');
     var rm = document.getElementById('report-modal-overlay');
+    var ih = document.getElementById('install-hint-overlay');
     if (lb && !lb.hidden) { closeLightbox(); }
     else if (rm && !rm.hidden) { closeReportModal(); }
+    else if (ih && !ih.hidden) { closeInstallHint(); }
   });
 
   /* Enter в полях входа/регистрации/отправки отчета — как нажатие на основную
@@ -237,6 +241,73 @@ function openDatePicker(evt) {
   } else {
     input.focus();
   }
+}
+
+/* ---------- Установка сайта как приложения (иконка на рабочий стол/телефон) ----------
+   На Android и на компьютере (Chrome/Edge) браузер сам присылает событие
+   "beforeinstallprompt" — мы его запоминаем и по нажатию кнопки показываем
+   стандартное окно установки. На iPhone/iPad (Safari) такого окна у браузеров
+   нет вообще — там единственный способ показать картинку с инструкцией
+   "Поделиться → На экран «Домой»". Если сайт уже установлен и открыт как
+   приложение — кнопку нигде не показываем. */
+var deferredInstallPrompt = null;
+var UA = navigator.userAgent;
+// iPad в "десктопном" режиме Safari представляется как Mac — отличаем его от
+// настоящего компьютера по тому, что у него есть сенсорный экран.
+var IS_IOS = (/iphone|ipad|ipod/i.test(UA) && !window.MSStream) || (/Macintosh/.test(UA) && navigator.maxTouchPoints > 1);
+var IS_MAC_SAFARI = /Macintosh/.test(UA) && !IS_IOS && /^((?!chrome|crios|edg|opr|android).)*safari/i.test(UA);
+
+function isRunningStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function setInstallButtonsVisible(visible) {
+  document.querySelectorAll('.install-app-btn').forEach(function (btn) { btn.hidden = !visible; });
+}
+
+function initInstallApp() {
+  if (isRunningStandalone()) { return; }
+
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    setInstallButtonsVisible(true);
+  });
+
+  window.addEventListener('appinstalled', function () {
+    deferredInstallPrompt = null;
+    setInstallButtonsVisible(false);
+  });
+
+  // У Safari (и на iPhone/iPad, и на Mac) события "beforeinstallprompt" не
+  // бывает в принципе — показываем кнопку сразу, по нажатию откроется подсказка.
+  if (IS_IOS || IS_MAC_SAFARI) { setInstallButtonsVisible(true); }
+}
+
+function installApp() {
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.then(function () { deferredInstallPrompt = null; });
+    return;
+  }
+  var text;
+  if (IS_IOS) {
+    text = 'Нажмите на значок «Поделиться» внизу экрана в Safari (квадрат со стрелкой вверх), затем выберите «На экран «Домой»» и нажмите «Добавить». На рабочем столе появится иконка — сайт будет открываться как обычное приложение, без адресной строки.';
+  } else if (IS_MAC_SAFARI) {
+    text = 'В Safari на Mac откройте меню «Файл» (вверху экрана) и выберите «Добавить в Dock...». Эта функция есть в Safari, начиная с macOS Sonoma (14) — если такого пункта в меню нет, значит версия Safari старее, и остаётся открывать сайт как обычную вкладку в браузере, через закладку.';
+  } else {
+    text = 'Откройте меню браузера (обычно три точки в правом верхнем углу) и выберите пункт «Установить приложение» или «Добавить на главный экран».';
+  }
+  document.getElementById('install-hint-text').textContent = text;
+  document.getElementById('install-hint-overlay').hidden = false;
+}
+
+function closeInstallHint() {
+  document.getElementById('install-hint-overlay').hidden = true;
+}
+
+function closeInstallHintOverlay(evt) {
+  if (evt.target.id === 'install-hint-overlay') closeInstallHint();
 }
 
 function formatDate(iso) {
@@ -486,7 +557,17 @@ var ACCEPTED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application
 var selectedFiles = [];
 var keepExistingAttachment = false;
 
+/* Нельзя указать в отчете будущую дату — ни выбрать в календаре, ни ввести
+   руками. Ограничение ставим на сам инструмент выбора даты (max), каждый раз
+   заново, т.к. "сегодня" со временем меняется, а страница может оставаться
+   открытой долго. */
+function limitChatDateToToday() {
+  var el = document.getElementById('chat-date');
+  if (el) el.max = isoDate(new Date());
+}
+
 function resetComposeFields() {
+  limitChatDateToToday();
   document.getElementById('chat-statya').selectedIndex = 0;
   document.getElementById('chat-sum').value = '';
   document.getElementById('chat-date').value = '';
@@ -515,7 +596,8 @@ function checkChatForm() {
   var date = document.getElementById('chat-date').value;
   var contractor = document.getElementById('chat-contractor').value.trim();
   var hasFile = selectedFiles.length > 0 || keepExistingAttachment;
-  var valid = statya && statya.indexOf('Выберите') !== 0 && sum !== '' && Number(sum) > 0 && date !== '' && contractor !== '' && hasFile;
+  var dateOk = date !== '' && date <= isoDate(new Date());
+  var valid = statya && statya.indexOf('Выберите') !== 0 && sum !== '' && Number(sum) > 0 && dateOk && contractor !== '' && hasFile;
   document.getElementById('chat-submit').disabled = !valid;
 }
 
@@ -584,6 +666,7 @@ function startEditReport(id) {
   if (!report) return;
   editingId = id;
   activateComposeTab(report.type);
+  limitChatDateToToday();
   document.getElementById('chat-statya').value = report.statya;
   document.getElementById('chat-sum').value = report.sum;
   document.getElementById('chat-date').value = report.dateIso;
@@ -628,6 +711,10 @@ function submitChatCard() {
   var contractor = contractorEl.value.trim();
   var comment = commentEl.value.trim();
   if (!statya || statya.indexOf('Выберите') === 0 || !sum || !dateEl.value || !contractor) { return; }
+  if (dateEl.value > isoDate(new Date())) {
+    window.alert('Дата отчета не может быть в будущем.');
+    return;
+  }
 
   var editingReport = editingId ? findReport(editingId) : null;
   var hasFile = selectedFiles.length > 0 || keepExistingAttachment;

@@ -3,6 +3,7 @@ const ExcelJS = require('exceljs');
 const { pool } = require('./db');
 const { requireAuth, requireRole } = require('./jwt');
 const { buildAo1Workbook } = require('./ao1');
+const { sendMail } = require('./mail');
 
 const router = express.Router();
 
@@ -40,15 +41,64 @@ function serializeReport(row, employee) {
   };
 }
 
+/* Дата отчета не может быть в будущем (проверяем и здесь, на сервере, а не
+   только в календаре на сайте — защита на случай прямого запроса мимо сайта). */
+function isFutureDate(dateIso) {
+  if (!dateIso) return false;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  return String(dateIso) > todayIso;
+}
+
+/* Письмо бухгалтеру(ам) о новом отчете сотрудника — на все почты бухгалтеров
+   этого же проекта (их может быть несколько). Если почта не настроена
+   (см. mail.js) — просто ничего не произойдет, отчет при этом всё равно
+   сохранится как обычно. */
+async function notifyBuhOfNewReport({ employeeName, projectCode, type, statya, sum, dateIso, contractor, comment, reportNo }) {
+  try {
+    const buhResult = await pool.query(
+      "SELECT email FROM users WHERE role = 'buh' AND project_code = $1",
+      [projectCode]
+    );
+    const emails = buhResult.rows.map((r) => r.email).filter(Boolean);
+    if (!emails.length) return;
+
+    const typeLabel = type === 'income' ? 'Приход' : 'Расход';
+    const sumLabel = Number(sum).toLocaleString('ru-RU') + ' ₽';
+    const lines = [
+      'Новый отчет на проверку от сотрудника ' + employeeName + ' (№' + reportNo + ').',
+      '',
+      'Тип: ' + typeLabel,
+      'Статья: ' + statya,
+      'Сумма: ' + sumLabel,
+      'Дата: ' + dateIso,
+      'Контрагент: ' + contractor,
+    ];
+    if (comment) lines.push('Комментарий: ' + comment);
+    lines.push('', 'Проверить и одобрить можно в кабинете бухгалтера на сайте.');
+
+    await sendMail({
+      to: emails,
+      subject: 'Альпсервис — новый отчет №' + reportNo + ' (' + employeeName + ')',
+      text: lines.join('\n'),
+    });
+  } catch (e) {
+    console.error('[mail] Не удалось отправить уведомление о новом отчете:', e.message);
+  }
+}
+
 /* ---------- Сотрудник: создать отчет ---------- */
 router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
   const { type, statya, sum, dateIso, contractor, comment, fileIds } = req.body || {};
   if (!type || !statya || !sum || !dateIso || !contractor) {
     return res.status(400).json({ error: 'Заполните статью, сумму, дату и контрагента' });
   }
+  if (isFutureDate(dateIso)) {
+    return res.status(400).json({ error: 'Дата отчета не может быть в будущем' });
+  }
   try {
-    const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
+    const userResult = await pool.query('SELECT project_code, full_name FROM users WHERE id = $1', [req.user.sub]);
     const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+    const employeeName = userResult.rows[0] ? userResult.rows[0].full_name : '';
 
     // Свой порядковый номер у каждого сотрудника (№1, №2, №3... независимо от остальных)
     const seqResult = await pool.query(
@@ -67,6 +117,10 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
     if (Array.isArray(fileIds) && fileIds.length) {
       await pool.query('UPDATE report_files SET report_id = $1 WHERE id = ANY($2)', [report.id, fileIds]);
     }
+
+    notifyBuhOfNewReport({
+      employeeName, projectCode, type, statya, sum, dateIso, contractor, comment, reportNo,
+    });
 
     res.status(201).json({ report: serializeReport(report) });
   } catch (e) {
@@ -88,6 +142,9 @@ router.get('/mine', requireAuth, requireRole('sotr'), async (req, res) => {
 /* ---------- Сотрудник: отредактировать и повторно отправить отклонённый/любой свой отчет ---------- */
 router.patch('/:id', requireAuth, requireRole('sotr'), async (req, res) => {
   const { statya, sum, dateIso, contractor, comment } = req.body || {};
+  if (isFutureDate(dateIso)) {
+    return res.status(400).json({ error: 'Дата отчета не может быть в будущем' });
+  }
   try {
     const existing = await pool.query('SELECT * FROM reports WHERE id = $1 AND employee_id = $2', [req.params.id, req.user.sub]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'Отчет не найден' });
@@ -231,13 +288,22 @@ router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
 
     const asciiName = 'upravlenchesky-uchet-' + (from || 'vse') + '_' + (to || 'vse') + '.xlsx';
     const prettyName = 'УО ' + employeeName + ' ' + (from || 'весь период') + '—' + (to || 'весь период') + '.xlsx';
+    /* Важно: сначала полностью собираем файл в памяти (writeBuffer), и только
+       потом одним куском отправляем его целиком (res.end(buffer)), с точным
+       Content-Length. Раньше файл писался сразу "в сокет" (wb.xlsx.write(res))
+       прямо во время скачивания — на медленном или нестабильном интернете
+       (как на настоящем хостинге, не на локальном компьютере) это иногда
+       обрывало файл на середине, и Excel potom не мог его открыть ("ошибка
+       в части содержимого", пустой файл после восстановления). Способ ниже
+       от этого не зависит. */
+    const buffer = await wb.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader(
       'Content-Disposition',
       'attachment; filename="' + asciiName + '"; filename*=UTF-8\'\'' + encodeURIComponent(prettyName)
     );
-    await wb.xlsx.write(res);
-    res.end();
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Не удалось сформировать выгрузку' });
@@ -293,13 +359,17 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
 
     const asciiName = 'ao1-' + (from || 'vse') + '_' + (to || 'vse') + '.xlsx';
     const prettyName = 'АО-1 ' + emp.full_name + ' ' + (from || 'весь период') + '—' + (to || 'весь период') + '.xlsx';
+    /* См. комментарий в /export выше — собираем файл целиком в памяти и
+       отдаем одним куском, а не "на лету" прямо в скачивание, чтобы файл
+       не мог оборваться на середине при нестабильном интернете. */
+    const buffer = await wb.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader(
       'Content-Disposition',
       'attachment; filename="' + asciiName + '"; filename*=UTF-8\'\'' + encodeURIComponent(prettyName)
     );
-    await wb.xlsx.write(res);
-    res.end();
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Не удалось сформировать АО-1' });

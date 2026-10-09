@@ -211,6 +211,13 @@ input, select, textarea { font: inherit; color: inherit; }
 .sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
 .sidebar-employee { font-size: 12.5px; color: var(--ink-soft); line-height: 1.4; font-weight: 600; }
 .sidebar-foot .logout-link { justify-content: flex-start; padding: 4px 0; }
+.sidebar-foot .install-app-btn { justify-content: flex-start; padding: 4px 0; display: inline-flex; gap: 6px; }
+.install-app-btn-top {
+  width: 36px; height: 36px; border: none; background: none; color: var(--ink-soft);
+  border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.install-app-btn-top:hover { background: var(--card-sunk); color: var(--brand-red); }
+.install-app-btn-top .icon { width: 20px; height: 20px; }
 
 .main { flex: 1; min-width: 0; padding: 20px 16px 100px; max-width: 900px; margin: 0 auto; width: 100%; }
 .view { display: flex; flex-direction: column; gap: 20px; }
@@ -541,6 +548,9 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .modal-close:hover { color: var(--brand-red); }
 .modal-close .icon { width: 16px; height: 16px; }
+
+.install-hint-body h2 { font-size: 17px; margin: 0 0 10px; padding-right: 28px; }
+.install-hint-body p { font-size: 14px; line-height: 1.55; color: var(--ink-soft); white-space: pre-line; }
 
 .modal-reject-reason {
   font-size: 13px; color: var(--brand-red-ink); background: var(--brand-red-soft);

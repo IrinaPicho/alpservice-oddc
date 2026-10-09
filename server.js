@@ -9,6 +9,7 @@ const authRoutes = require('./routes-auth');
 const reportsRoutes = require('./routes-reports');
 const accountantsRoutes = require('./routes-accountants');
 const uploadsRoutes = require('./routes-uploads');
+const storage = require('./storage');
 
 const app = express();
 
@@ -23,10 +24,29 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/accountants', accountantsRoutes);
 app.use('/api/uploads', uploadsRoutes);
 
-/* ---------- Файлы, загруженные через форму отчета (чеки/документы) ---------- */
+/* ---------- Файлы, загруженные через форму отчета (чеки/документы) ----------
+   Если настроено облачное хранилище Backblaze B2 (см. storage.js) — отдаём
+   файлы из него. Если нет — как раньше, с диска сервера (подходит для
+   разработки, но не для продакшена: на большинстве хостингов, включая
+   Railway, диск не переживает редеплой). */
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-app.use('/uploads', express.static(uploadsDir));
+
+if (storage.isConfigured()) {
+  app.get('/uploads/:key', async (req, res) => {
+    try {
+      const obj = await storage.getFileStream(req.params.key);
+      if (!obj || !obj.Body) return res.status(404).end();
+      res.setHeader('Content-Type', obj.ContentType || 'application/octet-stream');
+      if (obj.ContentLength) res.setHeader('Content-Length', obj.ContentLength);
+      obj.Body.pipe(res);
+    } catch (e) {
+      res.status(404).end();
+    }
+  });
+} else {
+  app.use('/uploads', express.static(uploadsDir));
+}
 
 /* ---------- Сам сайт ----------
    Файлы лежат в том же репозитории, что и сервер (без вложенных папок — так

@@ -9,6 +9,10 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Альпсервис">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap">
@@ -47,6 +51,7 @@
   <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="12" rx="1"/><path d="M3 13h18"/><path d="M12 9v12"/><path d="M12 9C9 9 8 6.5 9.5 5S12 5.5 12 9"/><path d="M12 9c3 0 4-2.5 2.5-4S12 5.5 12 9"/></symbol>
   <symbol id="i-income" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="7" x2="12" y2="17"/><polyline points="8 13 12 17 16 13"/></symbol>
   <symbol id="i-other" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
+  <symbol id="i-install" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></symbol>
 </svg>
 
 <div id="app">
@@ -174,6 +179,9 @@
 
     <header class="topbar">
       <span class="logo-badge logo-badge-sm"><img src="logo.png" alt="Альпсервис групп"></span>
+      <button class="install-app-btn install-app-btn-top" type="button" onclick="installApp()" hidden aria-label="Установить приложение">
+        <svg class="icon"><use href="#i-install"/></svg>
+      </button>
     </header>
 
     <div class="layout">
@@ -201,6 +209,10 @@
         </button>
         <div class="sidebar-foot">
           <div class="sidebar-employee" id="dash-employee-name-side"></div>
+          <button class="text-link install-app-btn" type="button" onclick="installApp()" hidden>
+            <svg class="icon icon-sm"><use href="#i-install"/></svg>
+            Установить приложение
+          </button>
           <button class="text-link logout-link" type="button" onclick="doLogout()">
             <svg class="icon icon-sm"><use href="#i-logout"/></svg>
             Выйти
@@ -395,6 +407,9 @@
 
     <header class="topbar">
       <span class="logo-badge logo-badge-sm"><img src="logo.png" alt="Альпсервис групп"></span>
+      <button class="install-app-btn install-app-btn-top" type="button" onclick="installApp()" hidden aria-label="Установить приложение">
+        <svg class="icon"><use href="#i-install"/></svg>
+      </button>
     </header>
 
     <div class="layout">
@@ -422,6 +437,10 @@
         </nav>
         <div class="sidebar-foot">
           <div class="sidebar-employee" id="buh-name-side"></div>
+          <button class="text-link install-app-btn" type="button" onclick="installApp()" hidden>
+            <svg class="icon icon-sm"><use href="#i-install"/></svg>
+            Установить приложение
+          </button>
           <button class="text-link logout-link" type="button" onclick="doLogout()">
             <svg class="icon icon-sm"><use href="#i-logout"/></svg>
             Выйти
@@ -545,6 +564,9 @@
 
     <header class="topbar">
       <span class="logo-badge logo-badge-sm"><img src="logo.png" alt="Альпсервис групп"></span>
+      <button class="install-app-btn install-app-btn-top" type="button" onclick="installApp()" hidden aria-label="Установить приложение">
+        <svg class="icon"><use href="#i-install"/></svg>
+      </button>
     </header>
 
     <div class="layout">
@@ -560,6 +582,10 @@
         </nav>
         <div class="sidebar-foot">
           <div class="sidebar-employee" id="ruk-name-side"></div>
+          <button class="text-link install-app-btn" type="button" onclick="installApp()" hidden>
+            <svg class="icon icon-sm"><use href="#i-install"/></svg>
+            Установить приложение
+          </button>
           <button class="text-link logout-link" type="button" onclick="doLogout()">
             <svg class="icon icon-sm"><use href="#i-logout"/></svg>
             Выйти
@@ -640,6 +666,19 @@
         <svg class="icon"><use href="#i-close"/></svg>
       </button>
       <div id="lightbox-body"></div>
+    </div>
+  </div>
+
+  <!-- ===================== Модалка: как установить приложение (подсказка для iPhone/iPad) ===================== -->
+  <div id="install-hint-overlay" class="modal-overlay" hidden onclick="closeInstallHintOverlay(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <button class="modal-close" type="button" onclick="closeInstallHint()" aria-label="Закрыть">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+      <div id="install-hint-body" class="install-hint-body">
+        <h2>Установить приложение</h2>
+        <p id="install-hint-text"></p>
+      </div>
     </div>
   </div>
 

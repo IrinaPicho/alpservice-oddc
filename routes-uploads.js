@@ -1,28 +1,23 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
 const { pool } = require('./db');
 const { requireAuth, requireRole } = require('./jwt');
+const storage = require('./storage');
 
 const router = express.Router();
 
 /* ---------- Хранилище файлов ----------
-   Сейчас — локальный диск (папка uploads/), подходит для разработки и для теста
-   здесь, в сессии. На проде локальный диск НЕ подходит: большинство хостингов
-   (включая Railway) не гарантируют, что файлы переживут редеплой или перезапуск
-   контейнера. Для продакшена эту часть нужно заменить на Cloudflare R2 / S3 —
-   меняется только этот файл, остальной бэкенд не трогаем. */
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, 'uploads')),
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, crypto.randomUUID() + ext);
-  },
-});
+   Файлы принимаются в память (не сразу на диск), а дальше:
+   - если настроено облачное хранилище Backblaze B2 (см. storage.js) — файл
+     уходит туда, это надежный вариант для продакшена (переживает редеплои);
+   - если не настроено — как раньше, сохраняется на диск сервера (uploads/),
+     этого достаточно для разработки/теста. */
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (req, file, cb) => cb(null, ACCEPTED.includes(file.mimetype)),
 });
@@ -36,8 +31,18 @@ router.post('/', requireAuth, requireRole('sotr'), upload.array('files', 10), as
   try {
     const inserted = [];
     for (const file of files) {
+      const ext = path.extname(file.originalname) || (file.mimetype === 'application/pdf' ? '.pdf' : '.jpg');
+      const key = crypto.randomUUID() + ext;
       const kind = file.mimetype === 'application/pdf' ? 'pdf' : 'image';
-      const url = '/uploads/' + file.filename;
+
+      const savedToCloud = await storage.uploadFile(key, file.buffer, file.mimetype);
+      if (!savedToCloud) {
+        const dir = path.join(__dirname, 'uploads');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, key), file.buffer);
+      }
+
+      const url = '/uploads/' + key;
       const result = await pool.query(
         // report_id временно NULL — привязывается при создании отчета
         `INSERT INTO report_files (report_id, kind, url, name)
