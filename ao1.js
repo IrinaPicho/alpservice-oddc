@@ -141,12 +141,25 @@ async function fixRowAddressMismatches(buffer) {
   if (!file) return buffer;
 
   let xml = await file.async('string');
-  xml = xml.replace(/<row r="(\d+)"([^>]*)>([\s\S]*?)<\/row>/g, function (whole, rowNum, rowAttrs, inner) {
-    const fixedInner = inner.replace(/(<c r=")([A-Z]+)\d+(")/g, function (m, before, col, after) {
-      return before + col + rowNum + after;
-    });
-    return '<row r="' + rowNum + '"' + rowAttrs + '>' + fixedInner + '</row>';
-  });
+  /* Важно: строки без единой ячейки (пустые) ExcelJS пишет "самозакрывающимся"
+     тегом <row .../> — без ячеек внутри. Предыдущая версия регулярки этого не
+     учитывала: она ловила символ "/" перед закрывающей ">" как часть атрибутов
+     и "захватывала" следующую за пустой строкой строку целиком как бы её
+     содержимым — из-за этого для части строк (там, где прямо перед данными
+     стоит пустая строка) исправление не срабатывало и битый адрес ячейки
+     уезжал в финальный файл как есть. Теперь самозакрывающиеся строки явно
+     отделены первой веткой regexp и не трогаются (чинить там нечего — ячеек
+     нет), а вторая ветка ловит только настоящие строки с содержимым. */
+  xml = xml.replace(
+    /<row r="(\d+)"([^>]*?)\/>|<row r="(\d+)"([^>]*)>([\s\S]*?)<\/row>/g,
+    function (whole, selfRowNum, selfAttrs, rowNum, rowAttrs, inner) {
+      if (selfRowNum !== undefined) return whole; // пустая строка — нечего чинить
+      const fixedInner = inner.replace(/(<c r=")([A-Z]+)\d+(")/g, function (m, before, col, after) {
+        return before + col + rowNum + after;
+      });
+      return '<row r="' + rowNum + '"' + rowAttrs + '>' + fixedInner + '</row>';
+    }
+  );
 
   zip.file(sheetPath, xml);
   return zip.generateAsync({ type: 'nodebuffer' });
