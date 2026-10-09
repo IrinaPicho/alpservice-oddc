@@ -2,7 +2,7 @@ const express = require('express');
 const ExcelJS = require('exceljs');
 const { pool } = require('./db');
 const { requireAuth, requireRole } = require('./jwt');
-const { buildAo1Workbook } = require('./ao1');
+const { buildAo1Workbook, fixRowAddressMismatches } = require('./ao1');
 const { sendMail } = require('./mail');
 
 const router = express.Router();
@@ -361,8 +361,13 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
     const prettyName = 'АО-1 ' + emp.full_name + ' ' + (from || 'весь период') + '—' + (to || 'весь период') + '.xlsx';
     /* См. комментарий в /export выше — собираем файл целиком в памяти и
        отдаем одним куском, а не "на лету" прямо в скачивание, чтобы файл
-       не мог оборваться на середине при нестабильном интернете. */
-    const buffer = await wb.xlsx.writeBuffer();
+       не мог оборваться на середине при нестабильном интернете. Дополнительно
+       выравниваем адреса ячеек (см. fixRowAddressMismatches в ao1.js) — сам
+       официальный бланк от клиента содержит мелкую внутреннюю нестыковку,
+       из-за которой Excel после пересборки файла через код мог считать его
+       поврежденным. */
+    const rawBuffer = await wb.xlsx.writeBuffer();
+    const buffer = await fixRowAddressMismatches(rawBuffer);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader(
       'Content-Disposition',

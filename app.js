@@ -437,6 +437,25 @@ function dateDividerLabel(iso) {
   return Number(parts[2]) + ' ' + MONTHS_RU[Number(parts[1]) - 1];
 }
 
+/* ---------- Дата/время ОТПРАВКИ отчета (а не дата самой операции) ----------
+   В ленте "Отчетность" заголовок дня и время под карточкой — это когда
+   сотрудник по факту отправил отчет (createdAt с сервера, часовой пояс —
+   локальный, браузера), а не дата расхода/прихода, которую он указал в
+   форме (dateIso) — та дата показывается отдельной строкой внутри самой
+   карточки, как часть содержимого. */
+function localDateKeyFromTimestamp(ts) {
+  var d = new Date(ts);
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+function createdAtDividerLabel(ts) {
+  var d = new Date(ts);
+  return d.getDate() + ' ' + MONTHS_RU[d.getMonth()];
+}
+function formatTimeFromTimestamp(ts) {
+  var d = new Date(ts);
+  return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
 function addDivider(label) { THREAD.push({ kind: 'divider', label: label }); }
 function addBot(status, text) { THREAD.push({ kind: 'bot', status: status, text: text }); }
 
@@ -463,12 +482,16 @@ function botTextFor(report) {
 
 function buildThreadFromReports(list) {
   THREAD = [];
+  // Порядок в ленте — по времени ОТПРАВКИ (createdAt), а не по дате операции,
+  // которую человек указал в форме — так лента ведёт себя как настоящая
+  // переписка (что отправлено раньше — то выше).
   var sorted = list.slice().sort(function (a, b) {
-    return a.dateIso === b.dateIso ? a.reportNo - b.reportNo : a.dateIso.localeCompare(b.dateIso);
+    return new Date(a.createdAt) - new Date(b.createdAt);
   });
-  var lastDate = null;
+  var lastDateKey = null;
   sorted.forEach(function (r) {
-    if (r.dateIso !== lastDate) { addDivider(dateDividerLabel(r.dateIso)); lastDate = r.dateIso; }
+    var key = localDateKeyFromTimestamp(r.createdAt);
+    if (key !== lastDateKey) { addDivider(createdAtDividerLabel(r.createdAt)); lastDateKey = key; }
     THREAD.push(Object.assign({ kind: 'user' }, r));
     addBot(r.status, botTextFor(r));
   });
@@ -522,9 +545,10 @@ function renderReportCard(report) {
     '</div>' +
     '<div class="msg-card-title">' + escapeHtml(report.statya) + '</div>' +
     '<div class="msg-card-sum">' + report.sum.toLocaleString('ru-RU') + ' ₽</div>' +
+    '<div class="msg-card-comment">Дата операции: ' + formatDate(report.dateIso) + '</div>' +
     (report.contractor ? '<div class="msg-card-comment">Контрагент: ' + escapeHtml(report.contractor) + '</div>' : '') +
     (report.comment ? '<div class="msg-card-comment">' + escapeHtml(report.comment) + '</div>' : '') +
-    '<div class="msg-time">' + formatDate(report.dateIso) + '</div>';
+    '<div class="msg-time">' + formatTimeFromTimestamp(report.createdAt) + '</div>';
   wrap.appendChild(card);
   return wrap;
 }

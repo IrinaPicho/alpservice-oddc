@@ -1,5 +1,6 @@
 const path = require('path');
 const ExcelJS = require('exceljs');
+const JSZip = require('jszip');
 
 /* Официальный унифицированный бланк АО-1 ("Авансовый отчет"), утвержден
    постановлением Госкомстата России от 01.08.2001 №55. Файл ao1-template.xlsx —
@@ -119,4 +120,36 @@ async function buildAo1Workbook({ employee, reports, projectLabel, directorName,
   return wb;
 }
 
-module.exports = { buildAo1Workbook };
+/* ---------- Исправление "битого" АО-1 ----------
+   Сам официальный бланк (ao1-template.xlsx, прислан клиентом) внутри себя
+   уже содержит небольшую нестыковку: у части ячеек в адресе указан не тот
+   номер строки, в которой они на самом деле находятся (например, ячейка
+   лежит в строке 2, а в её собственном адресе написано "V3"). Excel при
+   обычном открытии именно этого файла такую мелочь не замечает и прощает,
+   но как только файл проходит через пересборку (а мы именно это и делаем,
+   дописывая туда данные через ExcelJS) — Excel начинает считать файл
+   поврежденным ("ошибка в части содержимого") и после "восстановления"
+   теряет часть данных (поэтому скачанный бланк открывался пустым).
+   Чтобы это исправить, перед отправкой файла проходим по каждой строке
+   листа и для каждой её ячейки подставляем номер именно этой строки
+   (колонку ячейки не трогаем) — адреса становятся согласованными, и Excel
+   больше не считает файл повреждённым. */
+async function fixRowAddressMismatches(buffer) {
+  const zip = await JSZip.loadAsync(buffer);
+  const sheetPath = 'xl/worksheets/sheet1.xml';
+  const file = zip.file(sheetPath);
+  if (!file) return buffer;
+
+  let xml = await file.async('string');
+  xml = xml.replace(/<row r="(\d+)"([^>]*)>([\s\S]*?)<\/row>/g, function (whole, rowNum, rowAttrs, inner) {
+    const fixedInner = inner.replace(/(<c r=")([A-Z]+)\d+(")/g, function (m, before, col, after) {
+      return before + col + rowNum + after;
+    });
+    return '<row r="' + rowNum + '"' + rowAttrs + '>' + fixedInner + '</row>';
+  });
+
+  zip.file(sheetPath, xml);
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
+
+module.exports = { buildAo1Workbook, fixRowAddressMismatches };
