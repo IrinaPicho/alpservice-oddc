@@ -1172,14 +1172,16 @@ function loadBuhData() {
 function pad2(n) { return n < 10 ? '0' + n : '' + n; }
 function isoDate(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
 
-/* По умолчанию — текущий месяц, чтобы не заставлять каждый раз выбирать период заново. */
+/* По умолчанию — с начала текущего месяца по сегодняшний день (а не до конца
+   месяца), чтобы бухгалтер сразу видел период "месяц на сегодня", а не с
+   неодобренными днями наперёд. */
 function initExportDates() {
   var fromEl = document.getElementById('export-from');
   var toEl = document.getElementById('export-to');
   if (!fromEl || fromEl.value) return;
   var now = new Date();
   fromEl.value = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
-  toEl.value = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+  toEl.value = isoDate(now);
 }
 
 /* Список сотрудников для страницы "Выгрузка отчетов" — один раз при входе
