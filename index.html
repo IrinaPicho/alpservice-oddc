@@ -126,7 +126,7 @@
             <input id="r-proj-customer" type="text" placeholder="Например, ПАО «Роснефть»">
           </div>
           <div class="field">
-            <label for="r-legal-entity">Юридическое лицо</label>
+            <label for="r-legal-entity">Юридическое лицо<span class="required-mark">*</span></label>
             <input id="r-legal-entity" type="text" placeholder="Например, ИП Петров С.А.">
           </div>
           <div class="field">
@@ -230,7 +230,7 @@
             </div>
             <button class="add-btn" id="dashboard-send-btn" type="button">
               <svg class="icon"><use href="#i-send"/></svg>
-              <span>Отправить отчет</span>
+              <span>Отправить расход</span>
             </button>
           </div>
 
@@ -307,7 +307,7 @@
           <div class="chat-card">
             <div class="chat-head">
               <div class="tabs">
-                <button id="chat-tab-expense" class="tab active" type="button" onclick="setComposeType('expense')">Отправить отчет</button>
+                <button id="chat-tab-expense" class="tab active" type="button" onclick="setComposeType('expense')">Отправить расход</button>
                 <button id="chat-tab-income" class="tab" type="button" onclick="setComposeType('income')">Отправить приход</button>
               </div>
             </div>
@@ -508,6 +508,15 @@
             <button class="tab" type="button" onclick="setBuhFilter('pending')">На проверке</button>
             <button class="tab" type="button" onclick="setBuhFilter('approved')">Одобрено</button>
             <button class="tab" type="button" onclick="setBuhFilter('rejected')">Отклонено</button>
+          </div>
+          <div class="field buh-employee-filter-field">
+            <label for="buh-all-employee-filter">Сотрудник</label>
+            <div class="select-wrap">
+              <select id="buh-all-employee-filter" onchange="setBuhEmployeeFilter(this.value)">
+                <option value="all">Все сотрудники</option>
+              </select>
+              <svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg>
+            </div>
           </div>
           <div class="review-list" id="buh-all-list"></div>
         </section>

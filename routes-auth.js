@@ -11,6 +11,9 @@ router.post('/register', async (req, res) => {
   if (!email || !password || !fullName) {
     return res.status(400).json({ error: 'Укажите почту, пароль и ФИО' });
   }
+  if (!legalEntity) {
+    return res.status(400).json({ error: 'Укажите юридическое лицо' });
+  }
   const normalizedEmail = String(email).trim().toLowerCase();
   try {
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);

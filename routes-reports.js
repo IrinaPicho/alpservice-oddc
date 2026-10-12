@@ -272,7 +272,10 @@ router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
     result.rows.forEach((r) => {
       ws.addRow({
         dateOperation: new Date(r.date_iso),
-        sum: r.type === 'income' ? Number(r.sum) : -Number(r.sum),
+        /* Сумма всегда положительная — приход это или расход, видно по статье
+           (она сама называется "расход..." или "приход..."), отдельный знак
+           "минус" не нужен и только путает. */
+        sum: Number(r.sum),
         statya: r.statya,
         comment: r.comment || '',
         project: [r.project_code, r.employee_project_customer].filter(Boolean).join(' — '),
@@ -343,7 +346,7 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
     const result = await pool.query(query, params);
 
     const projectLabel = [projectCode, emp.project_customer].filter(Boolean).join(' — ');
-    const wb = await buildAo1Workbook({
+    const zip = await buildAo1Workbook({
       employee: {
         fullName: emp.full_name,
         tabelNumber: emp.tabel_number,
@@ -359,15 +362,14 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
 
     const asciiName = 'ao1-' + (from || 'vse') + '_' + (to || 'vse') + '.xlsx';
     const prettyName = 'АО-1 ' + emp.full_name + ' ' + (from || 'весь период') + '—' + (to || 'весь период') + '.xlsx';
-    /* См. комментарий в /export выше — собираем файл целиком в памяти и
-       отдаем одним куском, а не "на лету" прямо в скачивание, чтобы файл
-       не мог оборваться на середине при нестабильном интернете. Дополнительно
-       выравниваем адреса ячеек (см. fixRowAddressMismatches в ao1.js) — сам
-       официальный бланк от клиента содержит мелкую внутреннюю нестыковку,
-       из-за которой Excel после пересборки файла через код мог считать его
-       поврежденным. */
-    const rawBuffer = await wb.xlsx.writeBuffer();
-    const buffer = await fixRowAddressMismatches(rawBuffer);
+    /* Собираем файл целиком в памяти и отдаем одним куском, а не "на лету"
+       прямо в скачивание, чтобы файл не мог оборваться на середине при
+       нестабильном интернете. buildAo1Workbook теперь не пересобирает файл
+       целиком через ExcelJS (это и было источником проблем с "ошибка в
+       части содержимого") — она берет оригинальный бланк клиента и меняет
+       в нем только нужные ячейки, поэтому дополнительная "починка" после
+       сборки больше не нужна. */
+    const buffer = await fixRowAddressMismatches(zip);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader(
       'Content-Disposition',

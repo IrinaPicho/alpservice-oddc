@@ -101,6 +101,7 @@ function completeRegistration() {
   var mail = document.getElementById('r-mail').value.trim().toLowerCase();
   var pass = document.getElementById('r-pass').value;
   if (!fio || !mail || !pass) { window.alert('Заполните ФИО, почту и пароль.'); return; }
+  if (!legalEntity) { window.alert('Заполните юридическое лицо.'); return; }
 
   api('/api/auth/register', {
     method: 'POST',
@@ -965,8 +966,9 @@ function renderAll() {
    ========================================================================== */
 
 var buhFilter = 'all';
+var buhEmployeeFilter = 'all'; // 'all' или id сотрудника — фильтр по сотруднику в "Все отчеты"
 var expandedReviewIds = {}; // id -> true — отчеты в "Все отчеты", развёрнутые кликом для проверки/правки решения
-var BUH_EMPLOYEES = []; // список сотрудников проекта — для страницы "Выгрузка отчетов"
+var BUH_EMPLOYEES = []; // список сотрудников проекта — для страницы "Выгрузка отчетов" и фильтра в "Все отчеты"
 
 function findAnyReport(id) {
   for (var i = 0; i < ALL_REPORTS.length; i++) {
@@ -1147,10 +1149,32 @@ function setBuhFilter(filter) {
   renderBuhAllList();
 }
 
+function setBuhEmployeeFilter(employeeId) {
+  buhEmployeeFilter = employeeId;
+  renderBuhAllList();
+}
+
+/* Список сотрудников в select-е "Все отчеты" берём из BUH_EMPLOYEES (уже
+   загружен для страницы "Выгрузка отчетов") — просто перерисовываем select,
+   если он ещё пустой или отличается по составу. */
+function renderBuhEmployeeFilterOptions() {
+  var sel = document.getElementById('buh-all-employee-filter');
+  if (!sel || !BUH_EMPLOYEES.length) return;
+  if (sel.options.length - 1 === BUH_EMPLOYEES.length) return; // уже заполнен
+  var current = sel.value || 'all';
+  sel.innerHTML = '<option value="all">Все сотрудники</option>' +
+    BUH_EMPLOYEES.map(function (emp) {
+      return '<option value="' + emp.id + '">' + escapeHtml(emp.fullName) + '</option>';
+    }).join('');
+  sel.value = current;
+}
+
 function renderBuhAllList() {
+  renderBuhEmployeeFilterOptions();
   var wrap = document.getElementById('buh-all-list');
   var items = ALL_REPORTS.slice().sort(function (a, b) { return b.dateIso.localeCompare(a.dateIso); });
   if (buhFilter !== 'all') items = items.filter(function (r) { return r.status === buhFilter; });
+  if (buhEmployeeFilter !== 'all') items = items.filter(function (r) { return r.employeeId === buhEmployeeFilter; });
   if (!items.length) {
     wrap.innerHTML = '<div class="recent-empty">Отчетов нет.</div>';
     return;
@@ -1161,7 +1185,10 @@ function renderBuhAllList() {
 function loadBuhData() {
   return api('/api/reports').then(function (data) {
     ALL_REPORTS = data.reports.map(function (r) {
-      return Object.assign({}, r, { employee: r.employee ? r.employee.fullName : '—' });
+      return Object.assign({}, r, {
+        employeeId: r.employee ? r.employee.id : null,
+        employee: r.employee ? r.employee.fullName : '—',
+      });
     });
     renderBuhAll();
   });
@@ -1190,6 +1217,7 @@ function loadBuhExportEmployees() {
   return api('/api/reports/employees').then(function (data) {
     BUH_EMPLOYEES = data.employees || [];
     renderBuhExportList();
+    renderBuhAllList(); // чтобы select-фильтр по сотруднику в "Все отчеты" тоже заполнился
   }).catch(function () { /* страница просто останется пустой, не критично */ });
 }
 
