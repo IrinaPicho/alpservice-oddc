@@ -582,13 +582,19 @@ var ACCEPTED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application
 var selectedFiles = [];
 var keepExistingAttachment = false;
 
-/* Нельзя указать в отчете будущую дату — ни выбрать в календаре, ни ввести
-   руками. Ограничение ставим на сам инструмент выбора даты (max), каждый раз
-   заново, т.к. "сегодня" со временем меняется, а страница может оставаться
-   открытой долго. */
+/* Дата операции должна быть строго в пределах ТЕКУЩЕГО календарного месяца
+   (по названию, а не "последние 30 дней") — например, 1 октября нельзя
+   выбрать 29 сентября, а 1 ноября сразу можно выбрать 1 ноября. Поэтому
+   у календаря одновременно два ограничения: min — первое число текущего
+   месяца, max — сегодняшний день (в будущее всё равно нельзя). Пересчитываем
+   заново при каждом открытии формы, т.к. "сегодня"/"текущий месяц" со
+   временем меняются, а страница может оставаться открытой долго. */
 function limitChatDateToToday() {
   var el = document.getElementById('chat-date');
-  if (el) el.max = isoDate(new Date());
+  if (!el) return;
+  var now = new Date();
+  el.max = isoDate(now);
+  el.min = now.getFullYear() + '-' + pad2(now.getMonth() + 1) + '-01';
 }
 
 function resetComposeFields() {
@@ -621,7 +627,8 @@ function checkChatForm() {
   var date = document.getElementById('chat-date').value;
   var contractor = document.getElementById('chat-contractor').value.trim();
   var hasFile = selectedFiles.length > 0 || keepExistingAttachment;
-  var dateOk = date !== '' && date <= isoDate(new Date());
+  var currentMonth = isoDate(new Date()).slice(0, 7);
+  var dateOk = date !== '' && date <= isoDate(new Date()) && date.slice(0, 7) === currentMonth;
   var valid = statya && statya.indexOf('Выберите') !== 0 && sum !== '' && Number(sum) > 0 && dateOk && contractor !== '' && hasFile;
   document.getElementById('chat-submit').disabled = !valid;
 }
@@ -1221,6 +1228,8 @@ function loadBuhExportEmployees() {
   }).catch(function () { /* страница просто останется пустой, не критично */ });
 }
 
+var empEditOpenId = null; // id сотрудника, у которого сейчас открыта форма "Проект/юрлицо"
+
 function renderBuhExportList() {
   var wrap = document.getElementById('buh-export-list');
   if (!wrap) return;
@@ -1229,14 +1238,67 @@ function renderBuhExportList() {
     return;
   }
   wrap.innerHTML = BUH_EMPLOYEES.map(function (emp) {
-    return '<div class="export-emp-row">' +
+    var meta = [emp.projectCode, emp.legalEntity].filter(Boolean).join(' · ');
+    var row = '<div class="export-emp-row">' +
       '<span class="export-emp-icon"><svg class="icon"><use href="#i-users"/></svg></span>' +
-      '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div></div>' +
+      '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
+        (meta ? '<div class="export-emp-meta">' + escapeHtml(meta) + '</div>' : '') +
+      '</div>' +
       '<div class="export-emp-actions">' +
         '<button class="btn-uo" type="button" onclick="downloadExport(\'' + emp.id + '\')">УО</button>' +
         '<button class="btn-ao1" type="button" onclick="downloadAo1(\'' + emp.id + '\')">АО-1</button>' +
+        '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>' +
       '</div></div>';
+  var editForm = empEditOpenId === emp.id ? empEditFormHtml(emp) : '';
+    return row + editForm;
   }).join('');
+}
+
+/* Форма смены проекта/юрлица/заказчика у сотрудника — открывается под его
+   строкой по кнопке "Проект/юрлицо". Пароль и почту сотрудника здесь не
+   трогаем вообще, меняются только эти три поля. */
+function empEditFormHtml(emp) {
+  return '<div class="emp-edit-form" id="emp-edit-' + emp.id + '">' +
+    '<div class="emp-edit-note">Отправленные ранее отчеты сотрудника не изменятся — поменяется только то, куда будут попадать его будущие отчеты.</div>' +
+    '<div class="field"><label>Шифр проекта</label><input id="emp-edit-project-' + emp.id + '" type="text" value="' + escapeHtml(emp.projectCode || '') + '"></div>' +
+    '<div class="field"><label>Заказчик по проекту</label><input id="emp-edit-customer-' + emp.id + '" type="text" value="' + escapeHtml(emp.projectCustomer || '') + '"></div>' +
+    '<div class="field"><label>Юридическое лицо</label><input id="emp-edit-legal-' + emp.id + '" type="text" value="' + escapeHtml(emp.legalEntity || '') + '"></div>' +
+    '<div class="emp-edit-actions">' +
+      '<button class="text-link" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Отмена</button>' +
+      '<button class="btn-save-confirm" type="button" onclick="saveEmpEdit(\'' + emp.id + '\')">Сохранить</button>' +
+    '</div></div>';
+}
+
+function toggleEmpEdit(employeeId) {
+  empEditOpenId = empEditOpenId === employeeId ? null : employeeId;
+  renderBuhExportList();
+}
+
+function saveEmpEdit(employeeId) {
+  var projectCode = document.getElementById('emp-edit-project-' + employeeId).value.trim();
+  var projectCustomer = document.getElementById('emp-edit-customer-' + employeeId).value.trim();
+  var legalEntity = document.getElementById('emp-edit-legal-' + employeeId).value.trim();
+  if (!projectCode) {
+    window.alert('Укажите шифр проекта');
+    return;
+  }
+  var movingToOtherProject = (function () {
+    var current = BUH_EMPLOYEES.find(function (e) { return e.id === employeeId; });
+    return current && current.projectCode !== projectCode;
+  })();
+  if (movingToOtherProject && !window.confirm(
+    'Сотрудник перестанет отображаться у вас в кабинете и перейдет в проект "' + projectCode + '". ' +
+    'Проверьте, что в этом проекте уже заведен бухгалтер в разделе «Бухгалтеры» — иначе его будущие отчеты ' +
+    'некому будет проверять. Продолжить?'
+  )) {
+    return;
+  }
+  api('/api/reports/employees/' + employeeId, { method: 'PATCH', body: { projectCode: projectCode, projectCustomer: projectCustomer, legalEntity: legalEntity } })
+    .then(function () {
+      empEditOpenId = null;
+      return loadBuhExportEmployees();
+    })
+    .catch(function (e) { window.alert(e.message || 'Не удалось сохранить изменения'); });
 }
 
 /* Выгрузка Excel (управленческий учет) по одному сотруднику — общей выгрузки

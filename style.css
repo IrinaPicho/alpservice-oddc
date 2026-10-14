@@ -116,6 +116,9 @@ input, select, textarea { font: inherit; color: inherit; }
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .tab.active { background: var(--brand-red); color: #ffffff; }
+/* "Отправить приход" — зелёным при выборе, отдельно от "Отправить расход"
+   (красный) — чтобы сразу было видно, какой тип операции выбран сейчас. */
+#chat-tab-income.active { background: var(--green); }
 
 .role-hint { font-size: 13px; line-height: 1.45; color: var(--ink-soft); margin-top: 12px; }
 .screen-title { margin-top: 6px; }
@@ -302,14 +305,26 @@ input, select, textarea { font: inherit; color: inherit; }
   border-radius: var(--radius-sm); padding: 7px 10px; margin-top: 7px; line-height: 1.4;
 }
 
-/* ================= Отчетность (чат-лента) ================= */
-.chat-card {
+/* ================= Отчетность: форма отправки + история (два отдельных блока) =================
+   Раньше это был один блок "чат-лента" (форма отправки внизу, история над ней,
+   общая прокрутка) — разделено на два самостоятельных окна на одном экране:
+   сверху форма отправки нового отчета (compose-card), снизу — отдельное окно
+   с историей уже отправленных отчетов (history-card), со своей прокруткой. */
+.compose-card {
   background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg);
-  display: flex; flex-direction: column; overflow: hidden; height: 760px;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: var(--shadow-card); margin-bottom: 20px;
+}
+.chat-head { padding: 16px 18px 14px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+
+.history-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  display: flex; flex-direction: column; overflow: hidden; height: 620px;
   box-shadow: var(--shadow-card);
 }
-@media (max-width: 600px) { .chat-card { height: 620px; } }
-.chat-head { padding: 16px 18px 14px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+@media (max-width: 600px) { .history-card { height: 520px; } }
+.history-head { padding: 16px 18px 14px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.history-head h2 { font-size: 15px; font-weight: 600; }
 
 .chat-thread { flex: 1; overflow-y: auto; padding: 18px 18px; display: flex; flex-direction: column; gap: 10px; }
 .chat-date {
@@ -374,7 +389,9 @@ input, select, textarea { font: inherit; color: inherit; }
   font-family: var(--font-body); font-size: 14px; cursor: pointer; padding-inline: 12px; width: 100%;
   transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.upload-btn.attached { border-style: solid; border-color: var(--brand-red); color: var(--brand-red); }
+/* Чек/документ уже прикреплен — это успех, не ошибка, поэтому зелёным,
+   а не красным (красный выглядел как "что-то не так"). */
+.upload-btn.attached { border-style: solid; border-color: var(--green); color: var(--green); }
 
 /* ---------- превью загруженных файлов ---------- */
 .file-preview-list { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -641,3 +658,27 @@ input, select, textarea { font: inherit; color: inherit; }
 .btn-ao1:hover { border-color: var(--brand-red); color: var(--brand-red); }
 .btn-ao1:disabled { color: var(--ink-faint); cursor: not-allowed; }
 .btn-ao1:disabled:hover { border-color: var(--line); color: var(--ink-faint); }
+
+/* На узких экранах строка сотрудника переносится в две строки (имя — сверху,
+   кнопки — снизу, в несколько рядов при необходимости), а не сжимается. */
+@media (max-width: 560px) {
+  .export-emp-row { flex-wrap: wrap; }
+  .export-emp-actions { flex-wrap: wrap; width: 100%; }
+}
+
+.export-emp-meta { font-size: 12px; color: var(--ink-faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Форма смены проекта/юрлица/заказчика сотрудника — открывается под его
+   строкой в списке "Выгрузка отчетов". */
+.emp-edit-form {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--card); border: 1px solid var(--line); border-top: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: 14px 16px 16px; margin-top: -8px; box-shadow: var(--shadow-card);
+}
+.emp-edit-note { font-size: 12.5px; color: var(--ink-faint); line-height: 1.4; }
+.emp-edit-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.btn-save-confirm {
+  height: 38px; padding-inline: 16px; border: none; border-radius: var(--radius-sm);
+  background: var(--green); color: #ffffff; font-family: var(--font-display); font-weight: 600; font-size: 13px; cursor: pointer;
+}
+.btn-save-confirm:hover { opacity: .92; }

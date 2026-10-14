@@ -304,15 +304,13 @@
             <div class="dash-object">Отправляйте отчеты по расходам и приходам на проверку бухгалтеру</div>
           </div>
 
-          <div class="chat-card">
+          <div class="compose-card">
             <div class="chat-head">
               <div class="tabs">
                 <button id="chat-tab-expense" class="tab active" type="button" onclick="setComposeType('expense')">Отправить расход</button>
                 <button id="chat-tab-income" class="tab" type="button" onclick="setComposeType('income')">Отправить приход</button>
               </div>
             </div>
-
-            <div class="chat-thread" id="chat-thread"></div>
 
             <div class="chat-compose">
               <div class="field">
@@ -351,6 +349,11 @@
               <div class="file-preview-list" id="chat-file-previews"></div>
               <button id="chat-cancel-edit" class="text-link chat-cancel-edit" type="button" onclick="cancelEditReport()" hidden>Отменить редактирование</button>
             </div>
+          </div>
+
+          <div class="history-card">
+            <div class="history-head"><h2>История отчетов</h2></div>
+            <div class="chat-thread" id="chat-thread"></div>
           </div>
         </section>
 

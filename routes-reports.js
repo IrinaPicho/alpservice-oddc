@@ -49,6 +49,17 @@ function isFutureDate(dateIso) {
   return String(dateIso) > todayIso;
 }
 
+/* Дата операции должна быть строго в рамках ТЕКУЩЕГО календарного месяца
+   (по названию, а не "последние 30 дней") — например, 1 октября нельзя
+   отправить отчет за 29 сентября, зато 1 ноября сразу можно за 1 ноября.
+   Тот же "YYYY-MM" кусок строки, что и в isFutureDate (там же и совпадающий
+   часовой пояс — UTC, чтобы не разъезжалось с проверкой на будущее). */
+function isOutsideCurrentMonth(dateIso) {
+  if (!dateIso) return false;
+  const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+  return String(dateIso).slice(0, 7) !== currentMonth;
+}
+
 /* Письмо бухгалтеру(ам) о новом отчете сотрудника — на все почты бухгалтеров
    этого же проекта (их может быть несколько). Если почта не настроена
    (см. mail.js) — просто ничего не произойдет, отчет при этом всё равно
@@ -95,9 +106,21 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
   if (isFutureDate(dateIso)) {
     return res.status(400).json({ error: 'Дата отчета не может быть в будущем' });
   }
+  if (isOutsideCurrentMonth(dateIso)) {
+    return res.status(400).json({ error: 'Дата операции должна быть в пределах текущего месяца' });
+  }
   try {
-    const userResult = await pool.query('SELECT project_code, full_name FROM users WHERE id = $1', [req.user.sub]);
+    const userResult = await pool.query(
+      'SELECT project_code, legal_entity, project_customer, full_name FROM users WHERE id = $1',
+      [req.user.sub]
+    );
     const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+    /* legal_entity и project_customer "фотографируем" с сотрудника именно в
+       момент отправки отчета (как и project_code) — если бухгалтер потом
+       переведет сотрудника в другой проект или юрлицо, этот уже отправленный
+       отчет навсегда останется с тем юрлицом/заказчиком, какие были сейчас. */
+    const legalEntity = userResult.rows[0] ? userResult.rows[0].legal_entity : null;
+    const projectCustomer = userResult.rows[0] ? userResult.rows[0].project_customer : null;
     const employeeName = userResult.rows[0] ? userResult.rows[0].full_name : '';
 
     // Свой порядковый номер у каждого сотрудника (№1, №2, №3... независимо от остальных)
@@ -108,9 +131,9 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
     const reportNo = seqResult.rows[0].next_no;
 
     const result = await pool.query(
-      `INSERT INTO reports (employee_id, report_no, project_code, type, statya, sum, date_iso, contractor, comment, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending') RETURNING *`,
-      [req.user.sub, reportNo, projectCode, type, statya, sum, dateIso, contractor, comment || '']
+      `INSERT INTO reports (employee_id, report_no, project_code, legal_entity, project_customer, type, statya, sum, date_iso, contractor, comment, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending') RETURNING *`,
+      [req.user.sub, reportNo, projectCode, legalEntity, projectCustomer, type, statya, sum, dateIso, contractor, comment || '']
     );
     const report = result.rows[0];
 
@@ -144,6 +167,9 @@ router.patch('/:id', requireAuth, requireRole('sotr'), async (req, res) => {
   const { statya, sum, dateIso, contractor, comment } = req.body || {};
   if (isFutureDate(dateIso)) {
     return res.status(400).json({ error: 'Дата отчета не может быть в будущем' });
+  }
+  if (isOutsideCurrentMonth(dateIso)) {
+    return res.status(400).json({ error: 'Дата операции должна быть в пределах текущего месяца' });
   }
   try {
     const existing = await pool.query('SELECT * FROM reports WHERE id = $1 AND employee_id = $2', [req.params.id, req.user.sub]);
@@ -198,20 +224,76 @@ router.get('/', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
 
 /* ---------- Бухгалтер: список сотрудников своего проекта ----------
    Нужен для страницы "Выгрузка отчетов" — показать список, по кому можно
-   сделать выгрузку, без отдельного запроса по каждому отчету. */
+   сделать выгрузку, без отдельного запроса по каждому отчету. Отдаем также
+   текущий проект/юрлицо/заказчика — чтобы бухгалтер их видел и мог поменять
+   (см. PATCH ниже) без захода в базу. */
 router.get('/employees', requireAuth, requireRole('buh'), async (req, res) => {
   try {
     const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
     const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
 
     const result = await pool.query(
-      "SELECT id, full_name FROM users WHERE role = 'sotr' AND project_code = $1 ORDER BY full_name",
+      "SELECT id, full_name, project_code, legal_entity, project_customer FROM users WHERE role = 'sotr' AND project_code = $1 ORDER BY full_name",
       [projectCode]
     );
-    res.json({ employees: result.rows.map((r) => ({ id: r.id, fullName: r.full_name })) });
+    res.json({
+      employees: result.rows.map((r) => ({
+        id: r.id,
+        fullName: r.full_name,
+        projectCode: r.project_code,
+        legalEntity: r.legal_entity,
+        projectCustomer: r.project_customer,
+      })),
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Не удалось загрузить список сотрудников' });
+  }
+});
+
+/* ---------- Бухгалтер: перевести сотрудника в другой проект/юрлицо ----------
+   Меняет ТОЛЬКО project_code / legal_entity / project_customer — пароль,
+   почту, ФИО и остальные данные сотрудника не трогаем, менять их не нужно.
+   Разрешено только для сотрудника, который сейчас числится в проекте этого
+   же бухгалтера (иначе чужой бухгалтер мог бы "перетащить к себе" кого-то
+   из другого проекта одним запросом).
+   Важно: уже отправленные отчеты сотрудника не меняются — у каждого отчета
+   свой "снимок" проекта/юрлица на момент отправки (см. комментарий в
+   schema.sql), поэтому старые выгрузки и АО-1 останутся как были. Меняется
+   только то, что будет происходить ДАЛЬШЕ: в какой кабинет бухгалтера
+   сотрудник попадет при следующей отправке отчета и кто сможет её проверить.
+   Если бухгалтера нового проекта в системе еще нет — его нужно сначала
+   завести в разделе "Бухгалтеры" (это делает руководитель), иначе отчеты
+   сотрудника дальше просто не будут попадать ни к какому бухгалтеру. */
+router.patch('/employees/:id', requireAuth, requireRole('buh'), async (req, res) => {
+  const { projectCode, legalEntity, projectCustomer } = req.body || {};
+  try {
+    const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
+    const myProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+
+    const existing = await pool.query(
+      "SELECT id FROM users WHERE id = $1 AND role = 'sotr' AND project_code = $2",
+      [req.params.id, myProjectCode]
+    );
+    if (!existing.rows[0]) {
+      return res.status(404).json({ error: 'Сотрудник не найден в вашем проекте' });
+    }
+
+    const result = await pool.query(
+      `UPDATE users SET project_code = $1, legal_entity = $2, project_customer = $3
+       WHERE id = $4 RETURNING id, full_name, project_code, legal_entity, project_customer`,
+      [projectCode || null, legalEntity || null, projectCustomer || null, req.params.id]
+    );
+    const r = result.rows[0];
+    res.json({
+      employee: {
+        id: r.id, fullName: r.full_name, projectCode: r.project_code,
+        legalEntity: r.legal_entity, projectCustomer: r.project_customer,
+      },
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Не удалось обновить данные сотрудника' });
   }
 });
 
@@ -230,8 +312,14 @@ router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
     const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
     const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
 
+    /* Сотрудника пускаем сюда не только если он СЕЙЧАС числится в проекте
+       этого бухгалтера, но и если у него раньше уже были отчеты по этому
+       проекту (вдруг его потом перевели в другой проект) — иначе бухгалтер
+       потерял бы доступ к выгрузке по своим же старым, уже одобренным
+       отчетам только из-за того, что сотрудник позже сменил проект. */
     const employeeResult = await pool.query(
-      "SELECT full_name FROM users WHERE id = $1 AND role = 'sotr' AND project_code = $2",
+      `SELECT full_name FROM users u WHERE u.id = $1 AND u.role = 'sotr'
+       AND (u.project_code = $2 OR EXISTS (SELECT 1 FROM reports r WHERE r.employee_id = u.id AND r.project_code = $2))`,
       [employeeId, projectCode]
     );
     if (!employeeResult.rows[0]) {
@@ -239,8 +327,10 @@ router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
     }
     const employeeName = employeeResult.rows[0].full_name || 'sotrudnik';
 
-    let query = `SELECT r.*, u.full_name AS employee_full_name, u.legal_entity AS employee_legal_entity,
-                   u.project_customer AS employee_project_customer
+    /* legal_entity и project_customer теперь берем из самого отчета (снимок
+       на момент отправки), а не живым JOIN-ом с users — иначе смена юрлица
+       сотрудника задним числом поменяла бы уже сформированные ранее отчеты. */
+    let query = `SELECT r.*, u.full_name AS employee_full_name
                  FROM reports r JOIN users u ON u.id = r.employee_id
                  WHERE r.project_code = $1 AND r.employee_id = $2`;
     const params = [projectCode, employeeId];
@@ -278,11 +368,11 @@ router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
         sum: Number(r.sum),
         statya: r.statya,
         comment: r.comment || '',
-        project: [r.project_code, r.employee_project_customer].filter(Boolean).join(' — '),
+        project: [r.project_code, r.project_customer].filter(Boolean).join(' — '),
         contractor: r.contractor || '',
         account: r.employee_full_name || '',
         accrualDate: new Date(r.created_at),
-        legalEntity: r.employee_legal_entity || '',
+        legalEntity: r.legal_entity || '',
       });
     });
     ws.getColumn('dateOperation').numFmt = 'dd.mm.yyyy';
@@ -326,8 +416,14 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
     const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
     const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
 
+    /* Та же логика, что и в /export: пускаем сотрудника сюда, если он сейчас
+       в проекте этого бухгалтера, ИЛИ если у него раньше уже были тут отчеты
+       (на случай, если его потом перевели в другой проект) — чтобы перевод
+       сотрудника не отрезал бухгалтера от его же старых одобренных отчетов. */
     const employeeResult = await pool.query(
-      "SELECT full_name, tabel_number, position, legal_entity, project_customer, advance_amount FROM users WHERE id = $1 AND role = 'sotr' AND project_code = $2",
+      `SELECT full_name, tabel_number, position, legal_entity, project_customer, advance_amount FROM users u
+       WHERE u.id = $1 AND u.role = 'sotr'
+       AND (u.project_code = $2 OR EXISTS (SELECT 1 FROM reports r WHERE r.employee_id = u.id AND r.project_code = $2))`,
       [employeeId, projectCode]
     );
     if (!employeeResult.rows[0]) {
@@ -345,13 +441,20 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
     query += ' ORDER BY date_iso ASC, created_at ASC';
     const result = await pool.query(query, params);
 
-    const projectLabel = [projectCode, emp.project_customer].filter(Boolean).join(' — ');
+    /* Юрлицо и заказчика проекта для бланка берем из снимка в самих отчетах
+       (если в выборке есть хоть один отчет), а не из текущей карточки
+       сотрудника — так бланк за старый период не "переедет" на новое
+       юрлицо, если сотрудника к этому моменту уже перевели. Если отчетов за
+       период нет (бланк будет пустой) — берем текущие данные сотрудника. */
+    const snapshotLegalEntity = result.rows[0] ? result.rows[0].legal_entity : null;
+    const snapshotProjectCustomer = result.rows[0] ? result.rows[0].project_customer : null;
+    const projectLabel = [projectCode, snapshotProjectCustomer || emp.project_customer].filter(Boolean).join(' — ');
     const zip = await buildAo1Workbook({
       employee: {
         fullName: emp.full_name,
         tabelNumber: emp.tabel_number,
         position: emp.position,
-        legalEntity: emp.legal_entity,
+        legalEntity: snapshotLegalEntity || emp.legal_entity,
         advanceAmount: emp.advance_amount,
       },
       reports: result.rows,

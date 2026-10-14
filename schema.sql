@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS reports (
   employee_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   report_no         integer NOT NULL, -- номер отчета у этого сотрудника (№1, №2... свой счет у каждого)
   project_code      text,          -- копия с сотрудника — чтобы бухгалтер фильтровал без join
+  legal_entity      text,          -- копия юрлица сотрудника на момент отправки отчета (чтобы при смене юрлица сотрудника старые отчеты не поменялись задним числом)
+  project_customer  text,          -- копия заказчика по проекту на момент отправки отчета (та же причина)
   type              text NOT NULL CHECK (type IN ('expense', 'income')),
   statya            text NOT NULL,
   sum               numeric(12,2) NOT NULL,
