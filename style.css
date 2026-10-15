@@ -222,6 +222,17 @@ input, select, textarea { font: inherit; color: inherit; }
 .install-app-btn-top:hover { background: var(--card-sunk); color: var(--brand-red); }
 .install-app-btn-top .icon { width: 20px; height: 20px; }
 
+/* Кнопка "Выйти" в верхнем меню кабинета бухгалтера и руководителя (на
+   мобильной версии) — там нижнее меню остаётся, поэтому выход добавлен
+   отдельной кнопкой сверху, рядом с кнопкой установки приложения. */
+.topbar-logout-btn {
+  display: flex; align-items: center; gap: 6px; height: 36px; padding-inline: 12px;
+  border: 1px solid var(--line); background: none; color: var(--red);
+  font-family: var(--font-body); font-weight: 600; font-size: 12.5px; cursor: pointer;
+}
+.topbar-logout-btn:hover { background: var(--red-soft); }
+.topbar-logout-btn .icon-sm { width: 15px; height: 15px; }
+
 /* ---------- Мобильная шапка кабинета сотрудника: кнопка "Отчет" + гамбургер ----------
    Нижнее меню на мобильной версии убрано целиком — вместо него всё управление
    (кнопка "Отчет" и остальные разделы) теперь живёт в шапке, которая прибита
@@ -551,8 +562,15 @@ input, select, textarea { font: inherit; color: inherit; }
 .status-pill-rejected { background: var(--red-soft); color: var(--red); }
 
 /* ---------- bottom nav / fab ---------- */
+/* position: sticky, а не fixed — на телефонах (особенно iOS Safari) меню,
+   прибитое через position: fixed, при прокрутке страницы может на долю
+   секунды "отлипать" от низа экрана и зависать в воздухе — это известная
+   особенность мобильных браузеров при скрытии/появлении адресной строки.
+   position: sticky этого не делает, потому что браузер держит элемент
+   внутри обычного потока страницы, а не рисует его поверх отдельным слоем
+   (то же самое мы уже сделали с верхним меню в кабинете сотрудника). */
 .bottom-nav {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  position: sticky; left: 0; right: 0; bottom: 0; z-index: 30;
   display: flex; align-items: center; justify-content: space-around;
   padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
   background: var(--card); border-top: 1px solid var(--line);
