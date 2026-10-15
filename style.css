@@ -611,6 +611,14 @@ input, select, textarea { font: inherit; color: inherit; }
      влезает — переносится на 3 строки и вылезает за рамку. На телефоне
      прячем подсказку, на десктопе (где места много) она остаётся. */
   .attach-hint { display: none; }
+  /* Поля дат "С"/"По" в "Выгрузке отчетов" (кабинет бухгалтера) — на
+     мобильном экране они стояли рядом по 140px каждое, и дата в коротком
+     формате ("15 Oct 2026") почти не оставляла места между текстом и
+     собственным значком календаря у телефона — из-за этого слева от
+     текста отступ был, а справа почти нет. На телефоне ставим поля друг
+     под другом на всю ширину — тогда месту взяться неоткуда не нужно, и
+     отступы со значком календаря становятся одинаковыми с двух сторон. */
+  .export-row .field { flex-basis: 100%; }
 }
 @media (min-width: 1080px) { .main { max-width: 1080px; margin: 0 auto; } }
 @media (max-width: 420px) {
@@ -639,6 +647,17 @@ input, select, textarea { font: inherit; color: inherit; }
 
 .install-hint-body h2 { font-size: 17px; margin: 0 0 10px; padding-right: 28px; }
 .install-hint-body p { font-size: 14px; line-height: 1.55; color: var(--ink-soft); white-space: pre-line; }
+
+/* ---------- окно подтверждения удаления бухгалтера ---------- */
+.confirm-modal-body h2 { font-size: 17px; margin: 0 0 10px; padding-right: 28px; }
+.confirm-modal-body p { font-size: 14px; line-height: 1.55; color: var(--ink-soft); }
+.confirm-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.btn-ghost-cancel {
+  height: 38px; padding-inline: 16px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: transparent; color: var(--ink-soft); font-family: var(--font-display);
+  font-weight: 600; font-size: 13px; cursor: pointer;
+}
+.btn-ghost-cancel:hover { background: var(--card-sunk); }
 
 .modal-reject-reason {
   font-size: 13px; color: var(--brand-red-ink); background: var(--brand-red-soft);

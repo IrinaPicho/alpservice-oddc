@@ -713,6 +713,23 @@
     </div>
   </div>
 
+  <!-- ===================== Модалка: подтверждение удаления бухгалтера ===================== -->
+  <div id="delete-accountant-overlay" class="modal-overlay" hidden onclick="closeDeleteAccountantOverlay(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <button class="modal-close" type="button" onclick="closeDeleteAccountantModal()" aria-label="Закрыть">
+        <svg class="icon"><use href="#i-close"/></svg>
+      </button>
+      <div class="confirm-modal-body">
+        <h2>Удалить бухгалтера?</h2>
+        <p id="delete-accountant-text"></p>
+        <div class="confirm-modal-actions">
+          <button class="btn-ghost-cancel" type="button" onclick="closeDeleteAccountantModal()">Отменить</button>
+          <button class="btn-reject-confirm" type="button" id="delete-accountant-confirm-btn" onclick="confirmDeleteAccountant()">Подтвердить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script src="app.js"></script>

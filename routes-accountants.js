@@ -47,11 +47,26 @@ router.post('/', requireAuth, requireRole('ruk'), async (req, res) => {
   }
 });
 
-/* ---------- Удалить бухгалтера ---------- */
+/* ---------- Удалить бухгалтера ----------
+   Раньше это падало с ошибкой, если бухгалтер уже проверил хотя бы один
+   отчет: в таблице reports есть поле reviewer_id (кто проверил), которое
+   ссылается на этого бухгалтера, и база данных не разрешает удалить
+   пользователя, пока на него есть такая ссылка. Сами отчеты при этом
+   никак не теряются и не меняются (статус, комментарий бухгалтера — всё
+   остаётся), поэтому перед удалением просто отвязываем эти отчеты от
+   удаляемого бухгалтера (reviewer_id становится пустым) — кто именно
+   из бухгалтеров когда-то нажал "одобрить/отклонить" нигде в интерфейсе
+   не показывается, так что для пользователей это незаметно. */
 router.delete('/:id', requireAuth, requireRole('ruk'), async (req, res) => {
-  const result = await pool.query("DELETE FROM users WHERE id = $1 AND role = 'buh'", [req.params.id]);
-  if (!result.rowCount) return res.status(404).json({ error: 'Бухгалтер не найден' });
-  res.json({ ok: true });
+  try {
+    await pool.query('UPDATE reports SET reviewer_id = NULL WHERE reviewer_id = $1', [req.params.id]);
+    const result = await pool.query("DELETE FROM users WHERE id = $1 AND role = 'buh'", [req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Бухгалтер не найден' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Не удалось удалить бухгалтера' });
+  }
 });
 
 module.exports = router;

@@ -238,9 +238,11 @@ document.addEventListener('DOMContentLoaded', function () {
     var lb = document.getElementById('lightbox-overlay');
     var rm = document.getElementById('report-modal-overlay');
     var ih = document.getElementById('install-hint-overlay');
+    var da = document.getElementById('delete-accountant-overlay');
     if (lb && !lb.hidden) { closeLightbox(); }
     else if (rm && !rm.hidden) { closeReportModal(); }
     else if (ih && !ih.hidden) { closeInstallHint(); }
+    else if (da && !da.hidden) { closeDeleteAccountantModal(); }
     else { closeHamburgerMenu(); }
   });
 
@@ -1478,10 +1480,39 @@ function addAccountantFromForm() {
     .then(function () { btn.disabled = false; });
 }
 
+/* Удаление бухгалтера теперь идёт через окно подтверждения (а не сразу по
+   нажатию на крестик) — чтобы нельзя было удалить бухгалтера случайно. */
+var deleteAccountantPendingId = null;
+
 function deleteAccountant(id) {
+  var acc = ACCOUNTANTS.find(function (a) { return a.id === id; });
+  deleteAccountantPendingId = id;
+  document.getElementById('delete-accountant-text').textContent =
+    'Вы удаляете бухгалтера ' + (acc ? acc.email : '') + '. Это действие нельзя отменить.';
+  document.getElementById('delete-accountant-overlay').hidden = false;
+}
+
+function closeDeleteAccountantModal() {
+  document.getElementById('delete-accountant-overlay').hidden = true;
+  deleteAccountantPendingId = null;
+}
+
+function closeDeleteAccountantOverlay(e) {
+  if (e.target.id === 'delete-accountant-overlay') closeDeleteAccountantModal();
+}
+
+function confirmDeleteAccountant() {
+  if (!deleteAccountantPendingId) return;
+  var id = deleteAccountantPendingId;
+  var btn = document.getElementById('delete-accountant-confirm-btn');
+  btn.disabled = true;
   api('/api/accountants/' + id, { method: 'DELETE' })
-    .then(function () { return loadRukData(); })
-    .catch(function (e) { window.alert(e.message || 'Не удалось удалить бухгалтера'); });
+    .then(function () {
+      closeDeleteAccountantModal();
+      return loadRukData();
+    })
+    .catch(function (e) { window.alert(e.message || 'Не удалось удалить бухгалтера'); })
+    .then(function () { btn.disabled = false; });
 }
 
 /* ---------- Инициализация ---------- */
