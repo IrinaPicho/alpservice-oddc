@@ -183,7 +183,7 @@ input, select, textarea { font: inherit; color: inherit; }
 
 .topbar {
   display: none; align-items: center; justify-content: space-between;
-  padding: 14px 18px; border-bottom: 1px solid var(--line);
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 18px 14px; border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 20; background: var(--card);
 }
 .layout { flex: 1; display: flex; min-height: 0; }
@@ -221,6 +221,42 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .install-app-btn-top:hover { background: var(--card-sunk); color: var(--brand-red); }
 .install-app-btn-top .icon { width: 20px; height: 20px; }
+
+/* ---------- Мобильная шапка кабинета сотрудника: кнопка "Отчет" + гамбургер ----------
+   Нижнее меню на мобильной версии убрано целиком — вместо него всё управление
+   (кнопка "Отчет" и остальные разделы) теперь живёт в шапке, которая прибита
+   к верху экрана (position: sticky) и не "съезжает" при прокрутке, в отличие
+   от прежнего нижнего меню. */
+.topbar-actions { display: flex; align-items: center; gap: 6px; }
+.topbar-report-btn {
+  display: flex; align-items: center; gap: 6px; height: 36px; padding-inline: 14px;
+  border: none; border-radius: var(--radius-pill); background: var(--brand-red); color: #ffffff;
+  font-family: var(--font-display); font-weight: 600; font-size: 13px; cursor: pointer;
+  transition: opacity var(--dur) var(--ease);
+}
+.topbar-report-btn:hover { opacity: .92; }
+.topbar-report-btn .icon-sm { width: 16px; height: 16px; }
+.hamburger-btn {
+  width: 36px; height: 36px; border: none; background: none; color: var(--ink);
+  border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; cursor: pointer;
+  flex-shrink: 0;
+}
+.hamburger-btn:hover { background: var(--card-sunk); }
+.hamburger-btn[aria-expanded="true"] { background: var(--card-sunk); color: var(--brand-red); }
+
+.hamburger-menu {
+  position: absolute; top: calc(100% + 6px); right: 14px; z-index: 40;
+  display: flex; flex-direction: column; min-width: 220px; padding: 8px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+.hamburger-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 12px;
+  border: none; background: none; border-radius: var(--radius-sm); cursor: pointer;
+  font-size: 14px; font-weight: 600; color: var(--ink); font-family: var(--font-body); text-align: left;
+}
+.hamburger-item:hover { background: var(--card-sunk); }
+.hamburger-item-logout { color: var(--red); }
 
 .main { flex: 1; min-width: 0; padding: 20px 16px 100px; max-width: 900px; margin: 0 auto; width: 100%; }
 .view { display: flex; flex-direction: column; gap: 20px; }
@@ -393,6 +429,12 @@ input, select, textarea { font: inherit; color: inherit; }
    а не красным (красный выглядел как "что-то не так"). */
 .upload-btn.attached { border-style: solid; border-color: var(--green); color: var(--green); }
 
+/* "(можно несколько)" у кнопки прикрепления — на мобильном не влезает в рамку
+   кнопки и переносится на 3 строки, поэтому на узких экранах прячем эту
+   подсказку и оставляем только "Прикрепить чек/документ". На десктопе
+   подсказка остаётся. */
+.attach-hint { white-space: nowrap; }
+
 /* ---------- превью загруженных файлов ---------- */
 .file-preview-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .file-preview-item {
@@ -541,7 +583,17 @@ input, select, textarea { font: inherit; color: inherit; }
   .main { padding: 34px 32px 60px; max-width: none; margin: 0; }
   .stat-grid { grid-template-columns: repeat(4, 1fr); }
 }
-@media (max-width: 719px) { .topbar { display: flex; } }
+@media (max-width: 719px) {
+  .topbar { display: flex; }
+  /* В кабинете сотрудника нижнего меню на телефоне больше нет (убрали в
+     пользу гамбургера вверху) — поэтому убираем и место под него снизу. */
+  #workspace .main { padding-bottom: 24px; }
+  /* На мобильном кнопка "Прикрепить чек/документ" стоит в узкой колонке
+     рядом с кнопкой "Отправить", и подсказка "(можно несколько)" туда не
+     влезает — переносится на 3 строки и вылезает за рамку. На телефоне
+     прячем подсказку, на десктопе (где места много) она остаётся. */
+  .attach-hint { display: none; }
+}
 @media (min-width: 1080px) { .main { max-width: 1080px; margin: 0 auto; } }
 @media (max-width: 420px) {
   .stat-grid { grid-template-columns: 1fr 1fr; }

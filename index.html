@@ -52,6 +52,7 @@
   <symbol id="i-income" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="7" x2="12" y2="17"/><polyline points="8 13 12 17 16 13"/></symbol>
   <symbol id="i-other" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
   <symbol id="i-install" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="5"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></symbol>
 </svg>
 
 <div id="app">
@@ -179,9 +180,33 @@
 
     <header class="topbar">
       <span class="logo-badge logo-badge-sm"><img src="logo.png" alt="Альпсервис групп"></span>
-      <button class="install-app-btn install-app-btn-top" type="button" onclick="installApp()" hidden aria-label="Установить приложение">
-        <svg class="icon"><use href="#i-install"/></svg>
-      </button>
+      <div class="topbar-actions">
+        <button class="topbar-report-btn" id="topbar-report-btn" type="button">
+          <svg class="icon icon-sm"><use href="#i-receipt"/></svg>
+          <span>Отчет</span>
+        </button>
+        <button class="hamburger-btn" id="hamburger-btn" type="button" aria-label="Меню" aria-expanded="false">
+          <svg class="icon"><use href="#i-menu"/></svg>
+        </button>
+      </div>
+      <div class="hamburger-menu" id="hamburger-menu" hidden>
+        <button class="hamburger-item" type="button" data-view="dashboard">
+          <svg class="icon icon-sm"><use href="#i-grid"/></svg>
+          <span>Дашборд</span>
+        </button>
+        <button class="hamburger-item" type="button" data-view="archive">
+          <svg class="icon icon-sm"><use href="#i-archive"/></svg>
+          <span>Архив</span>
+        </button>
+        <button class="hamburger-item install-app-btn" type="button" onclick="installApp()" hidden>
+          <svg class="icon icon-sm"><use href="#i-install"/></svg>
+          <span>Установить приложение</span>
+        </button>
+        <button class="hamburger-item hamburger-item-logout" type="button" onclick="doLogout()">
+          <svg class="icon icon-sm"><use href="#i-logout"/></svg>
+          <span>Выйти из кабинета</span>
+        </button>
+      </div>
     </header>
 
     <div class="layout">
@@ -341,7 +366,7 @@
               <div class="chat-compose-actions">
                 <button id="chat-attach" class="upload-btn" type="button" onclick="document.getElementById('chat-file').click()">
                   <svg class="icon icon-sm"><use href="#i-upload"/></svg>
-                  <span id="chat-attach-label">Прикрепить чек (можно несколько)</span><span class="required-mark">*</span>
+                  <span id="chat-attach-label">Прикрепить чек</span><span id="chat-attach-hint" class="attach-hint"> (можно несколько)</span><span class="required-mark">*</span>
                 </button>
                 <input id="chat-file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" multiple hidden onchange="handleChatFile(this)">
                 <button id="chat-submit" class="btn-primary" type="button" onclick="submitChatCard()" disabled>Отправить</button>
@@ -384,24 +409,6 @@
 
       </main>
     </div>
-
-    <nav class="bottom-nav" aria-label="Разделы">
-      <button class="bottom-nav-item is-active" type="button" data-view="dashboard">
-        <svg class="icon"><use href="#i-grid"/></svg>
-        <span>Дашборд</span>
-      </button>
-      <button class="bottom-nav-item" type="button" data-view="report">
-        <svg class="icon"><use href="#i-receipt"/></svg>
-        <span>Отчеты</span>
-      </button>
-      <button class="fab" id="add-btn-mobile" type="button" aria-label="Новый отчет">
-        <svg class="icon"><use href="#i-plus"/></svg>
-      </button>
-      <button class="bottom-nav-item" type="button" data-view="archive">
-        <svg class="icon"><use href="#i-archive"/></svg>
-        <span>Архив</span>
-      </button>
-    </nav>
 
   </div>
 

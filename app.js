@@ -183,6 +183,39 @@ function showView(name) {
   });
   if (name === 'report') { scrollChatToBottom(); }
   window.scrollTo(0, 0);
+  closeHamburgerMenu();
+}
+
+/* ---------- Гамбургер-меню в шапке (мобильная версия кабинета сотрудника) ----------
+   Дашборд/Архив открываются обычной ссылкой (data-view, см. обработчик выше),
+   "Установить приложение" и "Выйти из кабинета" — отдельные действия. Меню
+   закрывается после любого выбора, по клику вне меню и по Esc. */
+function closeHamburgerMenu() {
+  var menu = document.getElementById('hamburger-menu');
+  var btn = document.getElementById('hamburger-btn');
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function initHamburgerMenu() {
+  var btn = document.getElementById('hamburger-btn');
+  var menu = document.getElementById('hamburger-menu');
+  if (!btn || !menu) return;
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var willOpen = menu.hidden;
+    menu.hidden = !willOpen;
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  });
+  menu.querySelectorAll('.hamburger-item').forEach(function (item) {
+    item.addEventListener('click', function () { closeHamburgerMenu(); });
+  });
+  document.addEventListener('click', function (e) {
+    if (menu.hidden) return;
+    if (menu.contains(e.target) || btn.contains(e.target)) return;
+    closeHamburgerMenu();
+  });
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -196,8 +229,10 @@ document.addEventListener('DOMContentLoaded', function () {
   limitChatDateToToday();
   initInstallApp();
   document.getElementById('add-btn-desktop').addEventListener('click', openCompose);
-  document.getElementById('add-btn-mobile').addEventListener('click', openCompose);
+  var topbarReportBtn = document.getElementById('topbar-report-btn');
+  if (topbarReportBtn) topbarReportBtn.addEventListener('click', openCompose);
   document.getElementById('dashboard-send-btn').addEventListener('click', openCompose);
+  initHamburgerMenu();
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
     var lb = document.getElementById('lightbox-overlay');
@@ -206,6 +241,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (lb && !lb.hidden) { closeLightbox(); }
     else if (rm && !rm.hidden) { closeReportModal(); }
     else if (ih && !ih.hidden) { closeInstallHint(); }
+    else { closeHamburgerMenu(); }
   });
 
   /* Enter в полях входа/регистрации/отправки отчета — как нажатие на основную
@@ -345,62 +381,48 @@ var CATEGORY_GROUPS = {
   indirect:           { label: 'Постоянные косвенные расходы',        color: '--g-living',          soft: '--g-living-soft',         icon: 'i-users' },
   direct:             { label: 'Прямые переменные расходы',           color: '--g-transport',       soft: '--g-transport-soft',      icon: 'i-truck' },
   financial:          { label: 'Финансовые расходы',                  color: '--g-supply',          soft: '--g-supply-soft',         icon: 'i-archive' },
-  return_dds:         { label: 'Возврат (ДДС)',                       color: '--g-logistics',       soft: '--g-logistics-soft',      icon: 'i-other' },
+  return_dds:         { label: 'ДДС',                                 color: '--g-logistics',       soft: '--g-logistics-soft',      icon: 'i-other' },
+  vozvrat_income:     { label: 'Возврат',                              color: '--g-income',          soft: '--g-income-soft',         icon: 'i-income' },
   invest_income:      { label: 'Доход от инвестиционной деятельности',color: '--g-rent',            soft: '--g-rent-soft',           icon: 'i-building' },
   main_income:        { label: 'Доход от основной деятельности',      color: '--g-income',          soft: '--g-income-soft',         icon: 'i-income' },
   other_income:       { label: 'Прочие доходы',                       color: '--g-other',           soft: '--g-other-soft',          icon: 'i-other' },
   other:              { label: 'Прочее',                              color: '--g-other',           soft: '--g-other-soft',          icon: 'i-other' }
 };
 
+/* Список статей сокращен и приведен к варианту "для сотрудников" (ИТР) —
+   присланному Ириной файлу "Статьи с разделами" (правая колонка этого
+   файла). У бухгалтера/в выгрузках названия статей не меняются — это
+   обычный текст, старые отчеты со старыми названиями статей (до этого
+   сокращения) остаются как есть, их никто не трогает задним числом. */
 var STATYA_SECTIONS = {
   expense: [
-    { key: 'vozvrat_pokupatelu', label: 'Возврат покупателю', items: ['Возврат покупателю'] },
-    { key: 'dds', label: 'ДДС', items: ['дивиденды', 'кредит, займ', 'обеспечение на ЭТП (ДДС)'] },
-    { key: 'invest', label: 'Инвестиционные расходы', items: [
-      '% по лизингу', 'лизинг', 'НМА (расходы на нематериальные активы)', 'обучение', 'покупка мебели',
-      'покупка недвижимости', 'покупка оборудования (на склад)', 'покупка оргтехники', 'покупка ПО', 'покупка транспора'
-    ] },
     { key: 'commercial', label: 'Коммерческие расходы', items: [
-      'PR (КР)', 'аренда автотранспорта (КР)', 'БГ вознагрождение', 'выставка (КР)', 'ГСМ (КР)',
-      'доставка сотрудников (КР)', 'маркетинг (реклама) (КР)', 'питание сотрудников (КР)',
-      'представительские расходы (КР)', 'проживание сотрудника (КР)', 'тендерные расходы (КР)'
-    ] },
-    { key: 'taxes', label: 'Налоги', items: [
-      'АУСН', 'Налог на дивиденды', 'Налог на имущество', 'Налог на прибыль (доход)',
-      'НДС (Налог на добавленную стоимость)', 'НДФЛ (Налог на фонд оплаты труда)', 'Соцналоги', 'УСН',
-      'Штрафы, пени, неустойки по налогам'
-    ] },
-    { key: 'indirect', label: 'Постоянные косвенные расходы (общехозяйственные, операционные, административные)', items: [
-      'аренда офиса', 'аренда склада', 'аренда спецтехники', 'аренда транспорта', 'ГСМ для нужд офиса',
-      'доставка документов', 'канцтовары, типография (косв)', 'консалтинг', 'консультация', 'Подбор персонала',
-      'премия АУП', 'Программное обеспечение', 'Расходы на офис', 'ремонт оборудования', 'ремонт транспорта',
-      'связь, интернет', 'ФОТ АУП', 'ФОТ исполнителя (подрядчика)'
+      'БГ вознагрождение', 'тендерные расходы (КР)'
     ] },
     { key: 'direct', label: 'Прямые переменные расходы (общепроизводственные)', items: [
       'аренда автотранспорта (прямые)', 'аренда оборудования (прямые)', 'аренда помещения (прямые)',
       'аренда спецтехники (прямые)', 'вывоз и утилизация мусора', 'ГСМ (прямые)', 'доставка документов (прямые)',
-      'доставка материалов (тмц)', 'доставка оборудования (мтр)', 'доставка сотрудников (прямые)', 'инструменты',
-      'канцтовары, типография (прямые)', 'комиссия за переводы (прямые)', 'конвертация (прямые)', 'материалы',
-      'налоги подрядчика', 'непредвиденные расходы', 'обучение (ОТ и тд и тп)', 'питание исполнителя',
-      'питание итр', 'покупка оборудования', 'представительские расходы', 'премия подрядчика',
-      'проживание исполнителя', 'проживание ИТР', 'ремонт автотранспорта', 'ремонт оборудования (прямые)',
-      'связь, интернет (прямые)', 'снаряжение', 'спецодежда', 'ФОТ исполнитель (подрядчик)(прямые)',
+      'доставка материалов (тмц)', 'доставка оборудования (мтр)', 'доставка сотрудников (прямые)',
+      'Покупка инструмента', 'канцтовары, типография (прямые)', 'комиссия за переводы (прямые)',
+      'конвертация (прямые)', 'материалы', 'налоги подрядчика', 'непредвиденные расходы',
+      'обучение (ОТ и тд и тп)', 'питание исполнителя', 'питание итр', 'покупка оборудования',
+      'представительские расходы', 'премия подрядчика', 'проживание исполнителя', 'проживание ИТР',
+      'ремонт автотранспорта', 'ремонт оборудования (прямые)', 'связь, интернет (прямые)',
+      'Покупка снаряжения', 'Покупка спецодежды', 'ФОТ исполнитель (подрядчик)(прямые)',
       'ФОТ ИТР (подрядчик)', 'ФОТ ПТО (подрядчик)', 'ФОТ РП (подрядчик)', 'штрафы (прямые)'
     ] },
     { key: 'financial', label: 'Финансовые расходы', items: [
       '% кредиты, займы', '% по факторингу', 'БГ на обеспечение аванса', 'БГ на обеспечение гарантийных обязательств',
-      'БГ на обеспечение исполнение договора', 'БГ на обеспечение тендера', 'взносы', 'комиссия за переводы',
-      'конвертация', 'перечисление депозита', 'перечисление под отчет', 'получение БГ', 'пошлины',
-      'расходы на оптимизацию (УУ)', 'РКО', 'страхование'
+      'БГ на обеспечение исполнение договора', 'БГ на обеспечение тендера', 'перечисление под отчет',
+      'получение БГ', 'пошлины'
     ] }
   ],
   income: [
-    { key: 'return_dds', label: 'Возврат (ДДС)', items: [
-      'возврат депозита', 'возврат обеспечения с ЭТП', 'возврат подотчетных средств (ДДС)', 'займ от собственика', 'кредит, займ'
+    { key: 'vozvrat_income', label: 'Возврат', items: ['Возврат'] },
+    { key: 'return_dds', label: 'ДДС', items: [
+      'возврат подотчетных средств (ДДС)', 'кредит, займ', 'Возврат от поставщика'
     ] },
-    { key: 'invest_income', label: 'Доход от инвестиционной деятельности', items: ['доход от НМА', 'продажа активов'] },
-    { key: 'main_income', label: 'Доход от основной деятельности компании', items: ['аванс', 'Возврат от поставщика', 'оплата'] },
-    { key: 'other_income', label: 'Прочие доходы', items: ['% от депозита'] }
+    { key: 'other_income', label: 'Прочие доходы', items: ['Прочее поступление'] }
   ]
 };
 
@@ -608,7 +630,9 @@ function resetComposeFields() {
   selectedFiles = [];
   keepExistingAttachment = false;
   document.getElementById('chat-attach').classList.remove('attached');
-  document.getElementById('chat-attach-label').textContent = activeComposeType === 'expense' ? 'Прикрепить чек (можно несколько)' : 'Прикрепить документ (можно несколько)';
+  document.getElementById('chat-attach-label').textContent = activeComposeType === 'expense' ? 'Прикрепить чек' : 'Прикрепить документ';
+  var attachHintEl = document.getElementById('chat-attach-hint');
+  if (attachHintEl) attachHintEl.hidden = false;
   renderFilePreviews();
 }
 
@@ -636,16 +660,20 @@ function checkChatForm() {
 function updateAttachLabel() {
   var btn = document.getElementById('chat-attach');
   var label = document.getElementById('chat-attach-label');
+  var hint = document.getElementById('chat-attach-hint');
   var baseLabel = activeComposeType === 'expense' ? 'чек' : 'документ';
   if (selectedFiles.length) {
     btn.classList.add('attached');
+    if (hint) hint.hidden = true;
     label.textContent = selectedFiles.length === 1 ? selectedFiles[0].name : selectedFiles.length + ' файла прикреплено';
   } else if (keepExistingAttachment) {
     btn.classList.add('attached');
+    if (hint) hint.hidden = true;
     label.textContent = (activeComposeType === 'expense' ? 'Чек' : 'Документ') + ' уже прикреплен (нажмите, чтобы заменить)';
   } else {
     btn.classList.remove('attached');
-    label.textContent = 'Прикрепить ' + baseLabel + ' (можно несколько)';
+    if (hint) hint.hidden = false;
+    label.textContent = 'Прикрепить ' + baseLabel;
   }
 }
 
