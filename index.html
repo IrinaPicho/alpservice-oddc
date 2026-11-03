@@ -829,6 +829,48 @@
     </div>
   </div>
 
+  <!-- ===================== Модалка: обязательная смена временного пароля ===================== -->
+  <div id="change-password-overlay" class="modal-overlay" hidden>
+    <div class="modal-card">
+      <div class="confirm-modal-body">
+        <h2>Задайте свой пароль</h2>
+        <p>Пароль, который вам передали, — временный. Задайте свой собственный, чтобы продолжить.</p>
+        <div class="field">
+          <label for="cp-current">Временный пароль</label>
+          <div class="pass-wrap">
+            <input id="cp-current" type="password" placeholder="Пароль, который вам передали">
+            <button class="pass-toggle" type="button" onclick="togglePass('cp-current', this)" aria-label="Показать пароль">
+              <svg class="icon"><use href="#i-eye"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="cp-new">Новый пароль</label>
+          <div class="pass-wrap">
+            <input id="cp-new" type="password" placeholder="Не короче 6 символов">
+            <button class="pass-toggle" type="button" onclick="togglePass('cp-new', this)" aria-label="Показать пароль">
+              <svg class="icon"><use href="#i-eye"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="cp-confirm">Повторите новый пароль</label>
+          <div class="pass-wrap">
+            <input id="cp-confirm" type="password" placeholder="Ещё раз тот же пароль">
+            <button class="pass-toggle" type="button" onclick="togglePass('cp-confirm', this)" aria-label="Показать пароль">
+              <svg class="icon"><use href="#i-eye"/></svg>
+            </button>
+          </div>
+        </div>
+        <div id="cp-error" class="field-error" hidden></div>
+        <div class="confirm-modal-actions">
+          <button class="btn-ghost-cancel" type="button" onclick="cancelPasswordChange()">Выйти</button>
+          <button class="btn-save-confirm" type="button" id="cp-submit-btn" onclick="submitPasswordChange()">Сохранить пароль</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script src="app.js"></script>

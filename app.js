@@ -80,6 +80,7 @@ function attemptLogin() {
     .then(function (data) {
       errorEl.hidden = true;
       CURRENT_USER = data.user;
+      maybeForcePasswordChange();
       var name = data.user.fullName || mail;
       if (activeLoginRole === 'sotr') return enterWorkspace(name);
       if (activeLoginRole === 'buh') return enterBuhWorkspace(name);
@@ -141,7 +142,9 @@ function tryRestoreSession() {
       id: u.id, email: u.email, role: u.role, fullName: u.full_name,
       projectCode: u.project_code, projectCustomer: u.project_customer, advanceAmount: u.advance_amount,
       legalEntity: u.legal_entity, legalEntityOkpo: u.legal_entity_okpo, employeeCategory: u.employee_category,
+      mustChangePassword: u.must_change_password,
     };
+    maybeForcePasswordChange();
     var name = u.full_name || u.email;
     if (u.role === 'sotr') return enterWorkspace(name);
     if (u.role === 'buh') return enterBuhWorkspace(name);
@@ -338,6 +341,71 @@ function togglePass(id, btn) {
   btn.innerHTML = showing
     ? '<svg class="icon"><use href="#i-eye"/></svg>'
     : '<svg class="icon"><use href="#i-eye-off"/></svg>';
+}
+
+/* ---------- Обязательная смена временного пароля ----------
+   Если руководитель/бухгалтер только что завёл аккаунт (временный пароль,
+   см. routes-accountants.js и routes-reports.js POST /employees) — сервер
+   присылает mustChangePassword: true, и вместо кабинета поверх него
+   показывается эта модалка, пока человек не задаст свой собственный пароль.
+   Проверяется и сразу после входа (attemptLogin), и после восстановления
+   сессии при обновлении страницы (tryRestoreSession). */
+function maybeForcePasswordChange() {
+  var overlay = document.getElementById('change-password-overlay');
+  if (!overlay) return;
+  if (CURRENT_USER && CURRENT_USER.mustChangePassword) {
+    document.getElementById('cp-current').value = '';
+    document.getElementById('cp-new').value = '';
+    document.getElementById('cp-confirm').value = '';
+    document.getElementById('cp-error').hidden = true;
+    overlay.hidden = false;
+  } else {
+    overlay.hidden = true;
+  }
+}
+
+/* Если человек не хочет/не может сменить пароль прямо сейчас — выходим,
+   а не оставляем его запертым в модалке без выхода из аккаунта. */
+function cancelPasswordChange() {
+  document.getElementById('change-password-overlay').hidden = true;
+  doLogout();
+}
+
+function submitPasswordChange() {
+  var current = document.getElementById('cp-current').value;
+  var pass1 = document.getElementById('cp-new').value;
+  var pass2 = document.getElementById('cp-confirm').value;
+  var errorEl = document.getElementById('cp-error');
+  var btn = document.getElementById('cp-submit-btn');
+
+  if (!current) {
+    errorEl.textContent = 'Введите временный пароль, который вам передали.';
+    errorEl.hidden = false;
+    return;
+  }
+  if (pass1.length < 6) {
+    errorEl.textContent = 'Новый пароль должен быть не короче 6 символов.';
+    errorEl.hidden = false;
+    return;
+  }
+  if (pass1 !== pass2) {
+    errorEl.textContent = 'Пароли не совпадают, проверьте ещё раз.';
+    errorEl.hidden = false;
+    return;
+  }
+
+  errorEl.hidden = true;
+  btn.disabled = true;
+  api('/api/auth/change-password', { method: 'POST', body: { currentPassword: current, newPassword: pass1 } })
+    .then(function () {
+      CURRENT_USER.mustChangePassword = false;
+      document.getElementById('change-password-overlay').hidden = true;
+    })
+    .catch(function (e) {
+      errorEl.textContent = (e.data && e.data.error) || 'Не удалось сменить пароль, попробуйте ещё раз.';
+      errorEl.hidden = false;
+    })
+    .then(function () { btn.disabled = false; });
 }
 
 /* ---------- Юридические лица компании ----------
