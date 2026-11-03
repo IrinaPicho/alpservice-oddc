@@ -286,6 +286,10 @@ async function buildAo1Workbook({ employee, reports, projectLabel, directorName,
   }
 
   setCell(cell(5), 'B', employee.legalEntity || projectLabel || '', 'text');
+  // Код по ОКПО юрлица сотрудника — раньше тут всегда стояло "ЗАПОЛНИТЬ"
+  // (заглушка из оригинального бланка клиента), теперь подставляется само,
+  // если у сотрудника/в снимке отчета заполнено legal_entity_okpo.
+  if (employee.legalEntityOkpo) setCell(cell(5), 'V', employee.legalEntityOkpo, 'text');
   if (directorName) setCell(cell(13), 'T', directorName, 'text');
   setCell(cell(13), 'J', formatDateRu(periodTo || new Date()), 'text');
 

@@ -5,36 +5,16 @@ const { issueToken, setAuthCookie, clearAuthCookie, requireAuth } = require('./j
 
 const router = express.Router();
 
-/* ---------- Регистрация сотрудника (самостоятельная, роль всегда 'sotr') ---------- */
-router.post('/register', async (req, res) => {
-  const { email, password, fullName, phone, position, projectCode, projectCustomer, legalEntity, tabelNumber } = req.body || {};
-  if (!email || !password || !fullName) {
-    return res.status(400).json({ error: 'Укажите почту, пароль и ФИО' });
-  }
-  if (!legalEntity) {
-    return res.status(400).json({ error: 'Укажите юридическое лицо' });
-  }
-  const normalizedEmail = String(email).trim().toLowerCase();
-  try {
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
-    if (existing.rows.length) {
-      return res.status(409).json({ error: 'Такая почта уже зарегистрирована' });
-    }
-    const hash = await bcrypt.hash(password, 10);
-    const result = await pool.query(
-      `INSERT INTO users (email, password_hash, role, full_name, phone, position, project_code, project_customer, legal_entity, tabel_number)
-       VALUES ($1, $2, 'sotr', $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, email, role, full_name, project_code, project_customer, legal_entity, tabel_number`,
-      [normalizedEmail, hash, fullName, phone || null, position || null, projectCode || null, projectCustomer || null, legalEntity || null, tabelNumber || null]
-    );
-    const user = result.rows[0];
-    const token = issueToken({ id: user.id, role: user.role, email: user.email });
-    setAuthCookie(res, token);
-    res.status(201).json({ user });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Не удалось зарегистрировать' });
-  }
+/* ---------- Самостоятельной регистрации больше нет ----------
+   Раньше сотрудник мог завести себе аккаунт сам, с главного экрана входа.
+   По просьбе Ирины эту возможность убрали полностью — теперь завести
+   сотрудника может только руководитель (кабинет руководителя) или бухгалтер
+   (кабинет бухгалтера, только в свой проект), см. POST /api/reports/employees
+   в routes-reports.js. Сам маршрут ниже оставлен закрытым (всегда 410), а не
+   удалён совсем — на случай, если где-то в кэше/старой версии сайта на
+   телефоне у кого-то осталась старая кнопка "Зарегистрироваться". */
+router.post('/register', (req, res) => {
+  res.status(410).json({ error: 'Самостоятельная регистрация отключена. Обратитесь к руководителю или бухгалтеру, чтобы вам завели доступ.' });
 });
 
 /* ---------- Вход ----------
@@ -63,6 +43,8 @@ router.post('/login', async (req, res) => {
       user: {
         id: user.id, email: user.email, role: user.role, fullName: user.full_name,
         projectCode: user.project_code, projectCustomer: user.project_customer,
+        legalEntity: user.legal_entity, legalEntityOkpo: user.legal_entity_okpo,
+        employeeCategory: user.employee_category,
         mustChangePassword: user.must_change_password, advanceAmount: Number(user.advance_amount || 0),
       },
     });
@@ -79,7 +61,7 @@ router.post('/logout', (req, res) => {
 
 router.get('/me', requireAuth, async (req, res) => {
   const result = await pool.query(
-    'SELECT id, email, role, full_name, project_code, project_customer, legal_entity, must_change_password, advance_amount FROM users WHERE id = $1',
+    'SELECT id, email, role, full_name, project_code, project_customer, legal_entity, legal_entity_okpo, employee_category, must_change_password, advance_amount FROM users WHERE id = $1',
     [req.user.sub]
   );
   const user = result.rows[0];

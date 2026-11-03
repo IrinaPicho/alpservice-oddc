@@ -104,71 +104,10 @@
           </div>
           <div id="login-error" class="field-error" hidden>Неверная почта или пароль</div>
           <button class="btn-primary" type="button" onclick="attemptLogin()">Войти</button>
-          <button id="register-link" class="text-link" type="button" onclick="showScreen('register')">Зарегистрироваться</button>
         </div>
 
         <div class="director-login-row">
           <button id="director-link" class="text-link director-link" type="button" onclick="toggleDirectorLogin()">Войти как руководитель</button>
-        </div>
-      </section>
-
-      <section id="screen-register" class="screen" hidden>
-        <div class="screen-title">
-          <h1>Регистрация сотрудника</h1>
-          <div class="sub">Заполните данные, чтобы получить доступ к приложению</div>
-        </div>
-        <div class="card auth-card">
-          <div class="field">
-            <label for="r-proj-code">Проект</label>
-            <input id="r-proj-code" type="text" placeholder="Шифр проекта, например 30-155">
-          </div>
-          <div class="field">
-            <label for="r-proj-customer">Заказчик</label>
-            <input id="r-proj-customer" type="text" placeholder="Например, ПАО «Роснефть»">
-          </div>
-          <div class="field">
-            <label for="r-legal-entity">Юридическое лицо<span class="required-mark">*</span></label>
-            <input id="r-legal-entity" type="text" placeholder="Например, ИП Петров С.А.">
-          </div>
-          <div class="field">
-            <label for="r-fio">ФИО</label>
-            <input id="r-fio" type="text" placeholder="Иванов Иван Иванович">
-          </div>
-          <div class="field">
-            <label for="r-phone">Телефон</label>
-            <input id="r-phone" type="tel" placeholder="+7 900 000-00-00">
-          </div>
-          <div class="field">
-            <label for="r-role">Должность</label>
-            <input id="r-role" type="text" placeholder="Например, прораб">
-          </div>
-          <div class="field">
-            <label for="r-tabel-number">Табельный номер</label>
-            <input id="r-tabel-number" type="text" placeholder="Например, 0042">
-          </div>
-          <div class="field">
-            <label for="r-mail">Почта</label>
-            <input id="r-mail" type="email" placeholder="you@company.ru">
-          </div>
-          <div class="field">
-            <label for="r-pass">Пароль</label>
-            <div class="pass-wrap">
-              <input id="r-pass" type="password" placeholder="••••••••">
-              <button class="pass-toggle" type="button" onclick="togglePass('r-pass', this)" aria-label="Показать пароль">
-                <svg class="icon"><use href="#i-eye"/></svg>
-              </button>
-            </div>
-          </div>
-          <div class="consent consent-obrabotka">
-            <input id="c1" type="checkbox">
-            <label for="c1">Согласие на обработку персональных данных</label>
-          </div>
-          <div class="consent consent-nerazglashenie">
-            <input id="c2" type="checkbox">
-            <label for="c2">Согласие на неразглашение конфиденциальной информации</label>
-          </div>
-          <button class="btn-primary" type="button" onclick="completeRegistration()">Зарегистрироваться</button>
-          <button class="text-link" type="button" onclick="showScreen('login')">Уже есть аккаунт? Войти</button>
         </div>
       </section>
 
@@ -450,6 +389,10 @@
             <svg class="icon"><use href="#i-download"/></svg>
             <span>Выгрузка отчетов</span>
           </button>
+          <button class="side-nav-item" type="button" data-view="buh-employees">
+            <svg class="icon"><use href="#i-users"/></svg>
+            <span>Сотрудники</span>
+          </button>
         </nav>
         <div class="sidebar-foot">
           <div class="sidebar-employee" id="buh-name-side"></div>
@@ -560,6 +503,76 @@
           <div class="export-emp-list" id="buh-export-list"></div>
         </section>
 
+        <section id="view-buh-employees" class="view" hidden>
+          <div class="view-head">
+            <h1>Сотрудники</h1>
+            <div class="dash-object">Регистрация новых сотрудников — доступ даётся только отсюда, самостоятельная регистрация отключена</div>
+          </div>
+
+          <div class="card auth-card buh-add-employee-card">
+            <div class="field">
+              <label for="buh-emp-fio">ФИО</label>
+              <input id="buh-emp-fio" type="text" placeholder="Иванов Иван Иванович">
+            </div>
+            <div class="field">
+              <label for="buh-emp-mail">Почта</label>
+              <input id="buh-emp-mail" type="email" placeholder="ivan@alpservice-group.ru">
+            </div>
+            <div class="field">
+              <label for="buh-emp-phone">Телефон</label>
+              <input id="buh-emp-phone" type="tel" placeholder="+7 900 000-00-00">
+            </div>
+            <div class="field">
+              <label for="buh-emp-position">Должность</label>
+              <input id="buh-emp-position" type="text" placeholder="Например, прораб">
+            </div>
+            <div class="field">
+              <label for="buh-emp-tabel">Табельный номер</label>
+              <input id="buh-emp-tabel" type="text" placeholder="Например, 0042">
+            </div>
+            <div class="field">
+              <label for="buh-emp-customer">Заказчик по проекту</label>
+              <input id="buh-emp-customer" type="text" placeholder="Например, ПАО «Роснефть»">
+            </div>
+            <div class="field">
+              <label for="buh-emp-legal">Юридическое лицо<span class="required-mark">*</span></label>
+              <div class="select-wrap">
+                <select id="buh-emp-legal" onchange="onAddEmpLegalChange('buh-emp')">
+                  <option value="">Выберите юридическое лицо</option>
+                  <option value="ООО «ВТР ЗиС»">ООО «ВТР ЗиС» (ОКПО 36874476)</option>
+                  <option value="ООО «ЦОТ и ТБ»">ООО «ЦОТ и ТБ» (ОКПО 55814646)</option>
+                  <option value="__other__">Другое (ввести вручную)</option>
+                </select>
+                <svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg>
+              </div>
+            </div>
+            <div class="field" id="buh-emp-legal-other-wrap" hidden>
+              <label for="buh-emp-legal-other">Название юрлица (вручную)</label>
+              <input id="buh-emp-legal-other" type="text" placeholder="Например, ИП Петров С.А.">
+            </div>
+            <div class="field">
+              <label for="buh-emp-okpo">ОКПО (для бланка АО-1)</label>
+              <input id="buh-emp-okpo" type="text" placeholder="Подставится само при выборе юрлица">
+            </div>
+            <div class="field">
+              <label for="buh-emp-category">Категория</label>
+              <div class="select-wrap">
+                <select id="buh-emp-category">
+                  <option value="aup" selected>АУП</option>
+                  <option value="itr">ИТР</option>
+                </select>
+                <svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg>
+              </div>
+            </div>
+            <button id="buh-emp-add-btn" class="btn-primary" type="button" onclick="addEmployeeFromForm('buh-emp', false)">Зарегистрировать сотрудника</button>
+          </div>
+
+          <div class="section-head">
+            <h2>Сотрудники проекта</h2>
+          </div>
+          <div class="export-emp-list" id="buh-employee-list"></div>
+        </section>
+
       </main>
     </div>
 
@@ -579,6 +592,10 @@
       <button class="bottom-nav-item" type="button" data-view="buh-export">
         <svg class="icon"><use href="#i-download"/></svg>
         <span>Выгрузка</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-view="buh-employees">
+        <svg class="icon"><use href="#i-users"/></svg>
+        <span>Сотрудники</span>
       </button>
     </nav>
 
@@ -609,6 +626,10 @@
           <button class="side-nav-item is-active" type="button" data-view="ruk-buh">
             <svg class="icon"><use href="#i-users"/></svg>
             <span>Бухгалтеры</span>
+          </button>
+          <button class="side-nav-item" type="button" data-view="ruk-employees">
+            <svg class="icon"><use href="#i-users"/></svg>
+            <span>Сотрудники</span>
           </button>
         </nav>
         <div class="sidebar-foot">
@@ -668,6 +689,80 @@
           <div class="ruk-list" id="ruk-list"></div>
         </section>
 
+        <section id="view-ruk-employees" class="view" hidden>
+          <div class="view-head">
+            <h1>Сотрудники</h1>
+            <div class="dash-object">Регистрация сотрудников в любой проект — доступ даётся только отсюда или из кабинета бухгалтера</div>
+          </div>
+
+          <div class="card auth-card ruk-add-card">
+            <div class="field">
+              <label for="ruk-emp-fio">ФИО</label>
+              <input id="ruk-emp-fio" type="text" placeholder="Иванов Иван Иванович">
+            </div>
+            <div class="field">
+              <label for="ruk-emp-mail">Почта</label>
+              <input id="ruk-emp-mail" type="email" placeholder="ivan@alpservice-group.ru">
+            </div>
+            <div class="field">
+              <label for="ruk-emp-phone">Телефон</label>
+              <input id="ruk-emp-phone" type="tel" placeholder="+7 900 000-00-00">
+            </div>
+            <div class="field">
+              <label for="ruk-emp-position">Должность</label>
+              <input id="ruk-emp-position" type="text" placeholder="Например, прораб">
+            </div>
+            <div class="field">
+              <label for="ruk-emp-tabel">Табельный номер</label>
+              <input id="ruk-emp-tabel" type="text" placeholder="Например, 0042">
+            </div>
+            <div class="field">
+              <label for="ruk-emp-project">Шифр проекта<span class="required-mark">*</span></label>
+              <input id="ruk-emp-project" type="text" placeholder="Например, 30-155">
+            </div>
+            <div class="field">
+              <label for="ruk-emp-customer">Заказчик по проекту</label>
+              <input id="ruk-emp-customer" type="text" placeholder="Например, ПАО «Роснефть»">
+            </div>
+            <div class="field">
+              <label for="ruk-emp-legal">Юридическое лицо<span class="required-mark">*</span></label>
+              <div class="select-wrap">
+                <select id="ruk-emp-legal" onchange="onAddEmpLegalChange('ruk-emp')">
+                  <option value="">Выберите юридическое лицо</option>
+                  <option value="ООО «ВТР ЗиС»">ООО «ВТР ЗиС» (ОКПО 36874476)</option>
+                  <option value="ООО «ЦОТ и ТБ»">ООО «ЦОТ и ТБ» (ОКПО 55814646)</option>
+                  <option value="__other__">Другое (ввести вручную)</option>
+                </select>
+                <svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg>
+              </div>
+            </div>
+            <div class="field" id="ruk-emp-legal-other-wrap" hidden>
+              <label for="ruk-emp-legal-other">Название юрлица (вручную)</label>
+              <input id="ruk-emp-legal-other" type="text" placeholder="Например, ИП Петров С.А.">
+            </div>
+            <div class="field">
+              <label for="ruk-emp-okpo">ОКПО (для бланка АО-1)</label>
+              <input id="ruk-emp-okpo" type="text" placeholder="Подставится само при выборе юрлица">
+            </div>
+            <div class="field">
+              <label for="ruk-emp-category">Категория</label>
+              <div class="select-wrap">
+                <select id="ruk-emp-category">
+                  <option value="aup" selected>АУП</option>
+                  <option value="itr">ИТР</option>
+                </select>
+                <svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg>
+              </div>
+            </div>
+            <button id="ruk-emp-add-btn" class="btn-primary" type="button" onclick="addEmployeeFromForm('ruk-emp', true)">Зарегистрировать сотрудника</button>
+          </div>
+
+          <div class="section-head">
+            <h2>Все сотрудники</h2>
+          </div>
+          <div class="export-emp-list" id="ruk-employee-list"></div>
+        </section>
+
       </main>
     </div>
 
@@ -675,6 +770,10 @@
       <button class="bottom-nav-item is-active" type="button" data-view="ruk-buh">
         <svg class="icon"><use href="#i-users"/></svg>
         <span>Бухгалтеры</span>
+      </button>
+      <button class="bottom-nav-item" type="button" data-view="ruk-employees">
+        <svg class="icon"><use href="#i-users"/></svg>
+        <span>Сотрудники</span>
       </button>
     </nav>
 

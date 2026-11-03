@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
   project_code    text,            -- шифр проекта: у sotr — свой проект, у buh — проект, который проверяет
   project_customer text,           -- заказчик по проекту (для sotr)
   legal_entity    text,            -- юрлицо компании, под которым оформлен сотрудник (для таблицы управленческого учета)
+  legal_entity_okpo text,          -- код ОКПО этого юрлица — нужен для бланка АО-1 (строка "по ОКПО")
+  employee_category text NOT NULL DEFAULT 'aup' CHECK (employee_category IN ('itr', 'aup')), -- категория сотрудника: 'itr' или 'aup' — определяет, какой список статей расходов/приходов ему показывать
   must_change_password boolean NOT NULL DEFAULT false, -- true после создания руководителем, пока бухгалтер не задал свой пароль
   advance_amount  numeric(12,2) NOT NULL DEFAULT 0, -- сколько выдано на руки сотруднику (вводит сам), для остатка на дашборде
   created_at      timestamptz NOT NULL DEFAULT now()
@@ -26,6 +28,7 @@ CREATE TABLE IF NOT EXISTS reports (
   report_no         integer NOT NULL, -- номер отчета у этого сотрудника (№1, №2... свой счет у каждого)
   project_code      text,          -- копия с сотрудника — чтобы бухгалтер фильтровал без join
   legal_entity      text,          -- копия юрлица сотрудника на момент отправки отчета (чтобы при смене юрлица сотрудника старые отчеты не поменялись задним числом)
+  legal_entity_okpo text,          -- копия кода ОКПО юрлица на тот же момент (та же причина)
   project_customer  text,          -- копия заказчика по проекту на момент отправки отчета (та же причина)
   type              text NOT NULL CHECK (type IN ('expense', 'income')),
   statya            text NOT NULL,

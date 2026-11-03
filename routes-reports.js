@@ -1,5 +1,7 @@
 const express = require('express');
 const ExcelJS = require('exceljs');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const { pool } = require('./db');
 const { requireAuth, requireRole } = require('./jwt');
 const { buildAo1Workbook, fixRowAddressMismatches } = require('./ao1');
@@ -111,7 +113,7 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
   }
   try {
     const userResult = await pool.query(
-      'SELECT project_code, legal_entity, project_customer, full_name FROM users WHERE id = $1',
+      'SELECT project_code, legal_entity, legal_entity_okpo, project_customer, full_name FROM users WHERE id = $1',
       [req.user.sub]
     );
     const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
@@ -120,6 +122,7 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
        переведет сотрудника в другой проект или юрлицо, этот уже отправленный
        отчет навсегда останется с тем юрлицом/заказчиком, какие были сейчас. */
     const legalEntity = userResult.rows[0] ? userResult.rows[0].legal_entity : null;
+    const legalEntityOkpo = userResult.rows[0] ? userResult.rows[0].legal_entity_okpo : null;
     const projectCustomer = userResult.rows[0] ? userResult.rows[0].project_customer : null;
     const employeeName = userResult.rows[0] ? userResult.rows[0].full_name : '';
 
@@ -131,9 +134,9 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
     const reportNo = seqResult.rows[0].next_no;
 
     const result = await pool.query(
-      `INSERT INTO reports (employee_id, report_no, project_code, legal_entity, project_customer, type, statya, sum, date_iso, contractor, comment, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending') RETURNING *`,
-      [req.user.sub, reportNo, projectCode, legalEntity, projectCustomer, type, statya, sum, dateIso, contractor, comment || '']
+      `INSERT INTO reports (employee_id, report_no, project_code, legal_entity, legal_entity_okpo, project_customer, type, statya, sum, date_iso, contractor, comment, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending') RETURNING *`,
+      [req.user.sub, reportNo, projectCode, legalEntity, legalEntityOkpo, projectCustomer, type, statya, sum, dateIso, contractor, comment || '']
     );
     const report = result.rows[0];
 
@@ -222,26 +225,93 @@ router.get('/', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
   }
 });
 
-/* ---------- Бухгалтер: список сотрудников своего проекта ----------
-   Нужен для страницы "Выгрузка отчетов" — показать список, по кому можно
-   сделать выгрузку, без отдельного запроса по каждому отчету. Отдаем также
-   текущий проект/юрлицо/заказчика — чтобы бухгалтер их видел и мог поменять
-   (см. PATCH ниже) без захода в базу. */
-router.get('/employees', requireAuth, requireRole('buh'), async (req, res) => {
+/* ---------- Регистрация сотрудника (кабинет руководителя или бухгалтера) ----------
+   Раньше сотрудник мог зарегистрироваться сам, с главного экрана входа —
+   теперь эту возможность убрали (см. routes-auth.js POST /register), и
+   завести нового сотрудника может только руководитель (любой проект) или
+   бухгалтер (только в свой собственный проект — шифр проекта в этом случае
+   подставляется автоматически, даже если в запросе прислали другой, чтобы
+   бухгалтер не мог "завести" сотрудника в чужой проект).
+   Пароль, как и у бухгалтеров (см. routes-accountants.js), — временный,
+   показывается один раз в ответе на этот запрос, дальше сотрудник обязан
+   сменить его сам при первом входе. */
+router.post('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
+  const {
+    email, fullName, phone, position, tabelNumber,
+    projectCode, projectCustomer, legalEntity, legalEntityOkpo, employeeCategory,
+  } = req.body || {};
+  if (!email || !fullName) {
+    return res.status(400).json({ error: 'Укажите почту и ФИО' });
+  }
+  if (!legalEntity) {
+    return res.status(400).json({ error: 'Укажите юридическое лицо' });
+  }
+  const category = employeeCategory === 'itr' ? 'itr' : 'aup';
+  const normalizedEmail = String(email).trim().toLowerCase();
   try {
-    const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
-    const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
-
+    let finalProjectCode = projectCode || null;
+    if (req.user.role === 'buh') {
+      const myResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
+      finalProjectCode = myResult.rows[0] ? myResult.rows[0].project_code : null;
+    } else if (!finalProjectCode) {
+      return res.status(400).json({ error: 'Укажите шифр проекта' });
+    }
+    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+    if (existing.rows.length) {
+      return res.status(409).json({ error: 'Такая почта уже зарегистрирована' });
+    }
+    const tempPassword = crypto.randomBytes(6).toString('base64url');
+    const hash = await bcrypt.hash(tempPassword, 10);
     const result = await pool.query(
-      "SELECT id, full_name, project_code, legal_entity, project_customer FROM users WHERE role = 'sotr' AND project_code = $1 ORDER BY full_name",
-      [projectCode]
+      `INSERT INTO users (email, password_hash, role, full_name, phone, position, tabel_number,
+         project_code, project_customer, legal_entity, legal_entity_okpo, employee_category, must_change_password)
+       VALUES ($1, $2, 'sotr', $3, $4, $5, $6, $7, $8, $9, $10, $11, true)
+       RETURNING id, email, full_name, project_code, project_customer, legal_entity, legal_entity_okpo, employee_category`,
+      [normalizedEmail, hash, fullName, phone || null, position || null, tabelNumber || null,
+        finalProjectCode, projectCustomer || null, legalEntity, legalEntityOkpo || null, category]
     );
+    const r = result.rows[0];
+    res.status(201).json({
+      employee: {
+        id: r.id, email: r.email, fullName: r.full_name, projectCode: r.project_code,
+        projectCustomer: r.project_customer, legalEntity: r.legal_entity,
+        legalEntityOkpo: r.legal_entity_okpo, employeeCategory: r.employee_category,
+      },
+      tempPassword,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Не удалось зарегистрировать сотрудника' });
+  }
+});
+
+/* ---------- Список сотрудников ----------
+   Бухгалтер видит только сотрудников своего проекта (как и раньше — нужно
+   для страницы "Выгрузка отчетов"). Руководитель видит всех сотрудников
+   во всех проектах (своего отдельного проекта у него нет). */
+router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
+  try {
+    let result;
+    if (req.user.role === 'ruk') {
+      result = await pool.query(
+        "SELECT id, full_name, project_code, legal_entity, legal_entity_okpo, employee_category, project_customer FROM users WHERE role = 'sotr' ORDER BY full_name"
+      );
+    } else {
+      const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
+      const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+      result = await pool.query(
+        "SELECT id, full_name, project_code, legal_entity, legal_entity_okpo, employee_category, project_customer FROM users WHERE role = 'sotr' AND project_code = $1 ORDER BY full_name",
+        [projectCode]
+      );
+    }
     res.json({
       employees: result.rows.map((r) => ({
         id: r.id,
         fullName: r.full_name,
         projectCode: r.project_code,
         legalEntity: r.legal_entity,
+        legalEntityOkpo: r.legal_entity_okpo,
+        employeeCategory: r.employee_category,
         projectCustomer: r.project_customer,
       })),
     });
@@ -265,30 +335,38 @@ router.get('/employees', requireAuth, requireRole('buh'), async (req, res) => {
    Если бухгалтера нового проекта в системе еще нет — его нужно сначала
    завести в разделе "Бухгалтеры" (это делает руководитель), иначе отчеты
    сотрудника дальше просто не будут попадать ни к какому бухгалтеру. */
-router.patch('/employees/:id', requireAuth, requireRole('buh'), async (req, res) => {
-  const { projectCode, legalEntity, projectCustomer } = req.body || {};
+router.patch('/employees/:id', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
+  const { projectCode, legalEntity, legalEntityOkpo, employeeCategory, projectCustomer } = req.body || {};
   try {
-    const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
-    const myProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
-
-    const existing = await pool.query(
-      "SELECT id FROM users WHERE id = $1 AND role = 'sotr' AND project_code = $2",
-      [req.params.id, myProjectCode]
-    );
-    if (!existing.rows[0]) {
-      return res.status(404).json({ error: 'Сотрудник не найден в вашем проекте' });
+    if (req.user.role === 'buh') {
+      const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
+      const myProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+      const existing = await pool.query(
+        "SELECT id FROM users WHERE id = $1 AND role = 'sotr' AND project_code = $2",
+        [req.params.id, myProjectCode]
+      );
+      if (!existing.rows[0]) {
+        return res.status(404).json({ error: 'Сотрудник не найден в вашем проекте' });
+      }
+    } else {
+      const existing = await pool.query("SELECT id FROM users WHERE id = $1 AND role = 'sotr'", [req.params.id]);
+      if (!existing.rows[0]) return res.status(404).json({ error: 'Сотрудник не найден' });
     }
 
+    const category = employeeCategory === 'itr' ? 'itr' : employeeCategory === 'aup' ? 'aup' : null;
     const result = await pool.query(
-      `UPDATE users SET project_code = $1, legal_entity = $2, project_customer = $3
-       WHERE id = $4 RETURNING id, full_name, project_code, legal_entity, project_customer`,
-      [projectCode || null, legalEntity || null, projectCustomer || null, req.params.id]
+      `UPDATE users SET project_code = $1, legal_entity = $2, legal_entity_okpo = $3,
+         project_customer = $4, employee_category = COALESCE($5, employee_category)
+       WHERE id = $6
+       RETURNING id, full_name, project_code, legal_entity, legal_entity_okpo, employee_category, project_customer`,
+      [projectCode || null, legalEntity || null, legalEntityOkpo || null, projectCustomer || null, category, req.params.id]
     );
     const r = result.rows[0];
     res.json({
       employee: {
         id: r.id, fullName: r.full_name, projectCode: r.project_code,
-        legalEntity: r.legal_entity, projectCustomer: r.project_customer,
+        legalEntity: r.legal_entity, legalEntityOkpo: r.legal_entity_okpo,
+        employeeCategory: r.employee_category, projectCustomer: r.project_customer,
       },
     });
   } catch (e) {
@@ -421,7 +499,7 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
        (на случай, если его потом перевели в другой проект) — чтобы перевод
        сотрудника не отрезал бухгалтера от его же старых одобренных отчетов. */
     const employeeResult = await pool.query(
-      `SELECT full_name, tabel_number, position, legal_entity, project_customer, advance_amount FROM users u
+      `SELECT full_name, tabel_number, position, legal_entity, legal_entity_okpo, project_customer, advance_amount FROM users u
        WHERE u.id = $1 AND u.role = 'sotr'
        AND (u.project_code = $2 OR EXISTS (SELECT 1 FROM reports r WHERE r.employee_id = u.id AND r.project_code = $2))`,
       [employeeId, projectCode]
@@ -447,6 +525,7 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
        юрлицо, если сотрудника к этому моменту уже перевели. Если отчетов за
        период нет (бланк будет пустой) — берем текущие данные сотрудника. */
     const snapshotLegalEntity = result.rows[0] ? result.rows[0].legal_entity : null;
+    const snapshotLegalEntityOkpo = result.rows[0] ? result.rows[0].legal_entity_okpo : null;
     const snapshotProjectCustomer = result.rows[0] ? result.rows[0].project_customer : null;
     const projectLabel = [projectCode, snapshotProjectCustomer || emp.project_customer].filter(Boolean).join(' — ');
     const zip = await buildAo1Workbook({
@@ -455,6 +534,7 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
         tabelNumber: emp.tabel_number,
         position: emp.position,
         legalEntity: snapshotLegalEntity || emp.legal_entity,
+        legalEntityOkpo: snapshotLegalEntityOkpo || emp.legal_entity_okpo,
         advanceAmount: emp.advance_amount,
       },
       reports: result.rows,

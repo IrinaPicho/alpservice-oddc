@@ -32,7 +32,6 @@ function setRole(role) {
   document.getElementById('login-role-tabs').hidden = isRuk;
   document.getElementById('field-project').hidden = role !== 'sotr';
   document.getElementById('field-project-customer').hidden = role !== 'sotr';
-  document.getElementById('register-link').hidden = role !== 'sotr';
   document.getElementById('role-hint').textContent = role === 'sotr'
     ? 'Добавляйте платежи и отправляйте отчет на проверку'
     : role === 'buh'
@@ -90,30 +89,6 @@ function attemptLogin() {
     .then(function () { btn.disabled = false; });
 }
 
-function completeRegistration() {
-  var fio = document.getElementById('r-fio').value.trim();
-  var phone = document.getElementById('r-phone').value.trim();
-  var position = document.getElementById('r-role').value.trim();
-  var projectCode = document.getElementById('r-proj-code').value.trim();
-  var projectCustomer = document.getElementById('r-proj-customer').value.trim();
-  var legalEntity = document.getElementById('r-legal-entity').value.trim();
-  var tabelNumber = document.getElementById('r-tabel-number').value.trim();
-  var mail = document.getElementById('r-mail').value.trim().toLowerCase();
-  var pass = document.getElementById('r-pass').value;
-  if (!fio || !mail || !pass) { window.alert('Заполните ФИО, почту и пароль.'); return; }
-  if (!legalEntity) { window.alert('Заполните юридическое лицо.'); return; }
-
-  api('/api/auth/register', {
-    method: 'POST',
-    body: { email: mail, password: pass, fullName: fio, phone: phone, position: position, projectCode: projectCode, projectCustomer: projectCustomer, legalEntity: legalEntity, tabelNumber: tabelNumber },
-  })
-    .then(function (data) {
-      CURRENT_USER = data.user;
-      return enterWorkspace(data.user.full_name || fio);
-    })
-    .catch(function (e) { window.alert(e.message || 'Не удалось зарегистрироваться'); });
-}
-
 function enterWorkspace(name) {
   document.getElementById('dash-employee-name').textContent = name;
   document.getElementById('dash-employee-name-side').textContent = name;
@@ -144,7 +119,7 @@ function enterRukWorkspace(name) {
   document.getElementById('auth-wrap').hidden = true;
   document.getElementById('workspace-ruk').hidden = false;
   showView('ruk-buh');
-  return loadRukData();
+  return Promise.all([loadRukData(), loadRukEmployees()]);
 }
 
 function doLogout() {
@@ -165,6 +140,7 @@ function tryRestoreSession() {
     CURRENT_USER = {
       id: u.id, email: u.email, role: u.role, fullName: u.full_name,
       projectCode: u.project_code, projectCustomer: u.project_customer, advanceAmount: u.advance_amount,
+      legalEntity: u.legal_entity, legalEntityOkpo: u.legal_entity_okpo, employeeCategory: u.employee_category,
     };
     var name = u.full_name || u.email;
     if (u.role === 'sotr') return enterWorkspace(name);
@@ -257,11 +233,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (el.closest('#screen-login')) {
       e.preventDefault();
       attemptLogin();
-      return;
-    }
-    if (el.closest('#screen-register')) {
-      e.preventDefault();
-      completeRegistration();
       return;
     }
     if (el.closest('.chat-compose')) {
@@ -369,6 +340,36 @@ function togglePass(id, btn) {
     : '<svg class="icon"><use href="#i-eye-off"/></svg>';
 }
 
+/* ---------- Юридические лица компании ----------
+   Два реальных юрлица, под которыми оформлены сотрудники (ОКПО получены от
+   Алексея). Если появится третье — добавить сюда новой строкой; при
+   регистрации/редактировании сотрудника можно также выбрать "Другое" и
+   ввести название и ОКПО вручную (на случай, если список тут еще не
+   обновили). ОКПО нужен для бланка АО-1 (строка "по ОКПО") — раньше там
+   стояло "ЗАПОЛНИТЬ", теперь подставляется само. */
+var LEGAL_ENTITIES = [
+  { name: 'ООО «ВТР ЗиС»', okpo: '36874476' },
+  { name: 'ООО «ЦОТ и ТБ»', okpo: '55814646' }
+];
+
+function legalEntityOkpoFor(name) {
+  var found = LEGAL_ENTITIES.filter(function (e) { return e.name === name; })[0];
+  return found ? found.okpo : '';
+}
+
+/* options-разметка для <select> юрлица + "Другое" в конце. selected — текущее
+   название (если оно не входит в LEGAL_ENTITIES, выбирается "Другое"). */
+function legalEntityOptionsHtml(selected) {
+  var known = LEGAL_ENTITIES.some(function (e) { return e.name === selected; });
+  var opts = '<option value="">Выберите юридическое лицо</option>' +
+    LEGAL_ENTITIES.map(function (e) {
+      return '<option value="' + escapeHtml(e.name) + '"' + (selected === e.name ? ' selected' : '') + '>' +
+        escapeHtml(e.name) + ' (ОКПО ' + escapeHtml(e.okpo) + ')</option>';
+    }).join('');
+  opts += '<option value="__other__"' + (selected && !known ? ' selected' : '') + '>Другое (ввести вручную)</option>';
+  return opts;
+}
+
 /* ---------- Статьи и категории ---------- */
 
 /* Полный список статей — прислан клиентом (файл "Статьи с разделами.xlsx"),
@@ -391,17 +392,21 @@ var CATEGORY_GROUPS = {
   other:              { label: 'Прочее',                              color: '--g-other',           soft: '--g-other-soft',          icon: 'i-other' }
 };
 
-/* Список статей сокращен и приведен к варианту "для сотрудников" (ИТР) —
-   присланному Ириной файлу "Статьи с разделами" (правая колонка этого
-   файла). У бухгалтера/в выгрузках названия статей не меняются — это
-   обычный текст, старые отчеты со старыми названиями статей (до этого
-   сокращения) остаются как есть, их никто не трогает задним числом. */
-var STATYA_SECTIONS = {
+/* Два списка статей — по категории сотрудника (ИТР / АУП), присланы Ириной
+   в файле "Статьи с разделами отдельно на сотрудников" (две колонки файла:
+   левая — "сотрудники ауп", правая — "сотрудники ИТР"). Какой из двух
+   списков показать — решает employeeCategory у залогиненного сотрудника
+   (поле заполняется при регистрации, см. кабинет руководителя/бухгалтера).
+   У бухгалтера/в выгрузках названия статей не меняются — это обычный текст,
+   старые отчеты со старыми названиями статей остаются как есть, их никто
+   не трогает задним числом, даже если список на выбор потом поменяется. */
+var ITR_STATYA_SECTIONS = {
   expense: [
     { key: 'commercial', label: 'Коммерческие расходы', items: [
       'БГ вознагрождение', 'тендерные расходы (КР)'
     ] },
     { key: 'direct', label: 'Прямые переменные расходы (общепроизводственные)', items: [
+      'Разнарабочие',
       'аренда автотранспорта (прямые)', 'аренда оборудования (прямые)', 'аренда помещения (прямые)',
       'аренда спецтехники (прямые)', 'вывоз и утилизация мусора', 'ГСМ (прямые)', 'доставка документов (прямые)',
       'доставка материалов (тмц)', 'доставка оборудования (мтр)', 'доставка сотрудников (прямые)',
@@ -428,10 +433,90 @@ var STATYA_SECTIONS = {
   ]
 };
 
+var AUP_STATYA_SECTIONS = {
+  expense: [
+    { key: 'vozvrat_pokupatelu', label: 'Возврат покупателю', items: ['Возврат покупателю'] },
+    { key: 'dds', label: 'ДДС', items: [
+      'дивиденды', 'кредит, займ', 'обеспечение на ЭТП (ДДС)'
+    ] },
+    { key: 'invest', label: 'Инвестиционные расходы', items: [
+      '% по лизингу', 'лизинг', 'НМА (расходы на нематериальные активы)', 'обучение', 'покупка мебели',
+      'покупка недвижимости', 'покупка оборудования (на склад)', 'покупка оргтехники', 'покупка ПО',
+      'покупка транспора'
+    ] },
+    { key: 'commercial', label: 'Коммерческие расходы', items: [
+      'PR (КР)', 'аренда автотранспорта (КР)', 'БГ вознагрождение', 'выставка (КР)', 'ГСМ (КР)',
+      'доставка сотрудников (КР)', 'маркетинг (реклама) (КР)', 'питание сотрудников (КР)',
+      'представительские расходы (КР)', 'проживание сотрудника (КР)', 'тендерные расходы (КР)'
+    ] },
+    { key: 'taxes', label: 'Налоги', items: [
+      'АУСН', 'Налог на дивиденды', 'Налог на имущество', 'Налог на прибыль (доход)',
+      'НДС (Налог на добавленную стоимость)', 'НДФЛ (Налог на фонд оплаты труда)', 'Соцналоги', 'УСН',
+      'Штрафы, пени, неустойки по налогам'
+    ] },
+    { key: 'indirect', label: 'Постоянные косвенные расходы (общехозяйственные, операционные, административные)', items: [
+      'аренда офиса', 'аренда склада', 'аренда спецтехники', 'аренда транспорта', 'ГСМ для нужд офиса',
+      'доставка документов', 'канцтовары, типография (косв)', 'консалтинг', 'консультация',
+      'Подбор персонала', 'премия АУП', 'Программное обеспечение', 'Расходы на офис', 'ремонт оборудования',
+      'ремонт транспорта', 'связь, интернет', 'ФОТ АУП', 'ФОТ исполнителя (подрядчика)'
+    ] },
+    { key: 'direct', label: 'Прямые переменные расходы (общепроизводственные)', items: [
+      'Разнарабочие',
+      'аренда автотранспорта (прямые)', 'аренда оборудования (прямые)', 'аренда помещения (прямые)',
+      'аренда спецтехники (прямые)', 'вывоз и утилизация мусора', 'ГСМ (прямые)', 'доставка документов (прямые)',
+      'доставка материалов (тмц)', 'доставка оборудования (мтр)', 'доставка сотрудников (прямые)',
+      'Покупка инструмента', 'канцтовары, типография (прямые)', 'комиссия за переводы (прямые)',
+      'конвертация (прямые)', 'материалы', 'налоги подрядчика', 'непредвиденные расходы',
+      'обучение (ОТ и тд и тп)', 'питание исполнителя', 'питание итр', 'покупка оборудования',
+      'представительские расходы', 'премия подрядчика', 'проживание исполнителя', 'проживание ИТР',
+      'ремонт автотранспорта', 'ремонт оборудования (прямые)', 'связь, интернет (прямые)',
+      'Покупка снаряжения', 'Покупка спецодежды', 'ФОТ исполнитель (подрядчик)(прямые)',
+      'ФОТ ИТР (подрядчик)', 'ФОТ ПТО (подрядчик)', 'ФОТ РП (подрядчик)', 'штрафы (прямые)'
+    ] },
+    { key: 'financial', label: 'Финансовые расходы', items: [
+      '% кредиты, займы', '% по факторингу', 'БГ на обеспечение аванса', 'БГ на обеспечение гарантийных обязательств',
+      'БГ на обеспечение исполнение договора', 'БГ на обеспечение тендера', 'взносы', 'комиссия за переводы',
+      'конвертация', 'перечисление депозита', 'перечисление под отчет', 'получение БГ', 'пошлины',
+      'расходы на оптимизацию (УУ)', 'РКО', 'страхование'
+    ] }
+  ],
+  income: [
+    { key: 'vozvrat_income', label: 'Возврат', items: ['Возврат'] },
+    { key: 'return_dds', label: 'ДДС', items: [
+      'возврат депозита', 'возврат обеспечения с ЭТП', 'возврат подотчетных средств (ДДС)',
+      'займ от собственика', 'кредит, займ'
+    ] },
+    { key: 'invest_income', label: 'Доход от инвестиционной деятельности', items: [
+      'доход от инвестиционной деятельности', 'доход от НМА', 'продажа активов'
+    ] },
+    { key: 'main_income', label: 'Доход от основной деятельности', items: [
+      'доход от основной деятельности компании', 'аванс', 'Возврат от поставщика', 'оплата'
+    ] },
+    { key: 'other_income', label: 'Прочие доходы', items: [
+      'прочие доходы', '% от депозита', 'Прочее поступление'
+    ] }
+  ]
+};
+
+/* ВНИМАНИЕ (на всякий случай, перепроверить с Ириной): в её же файле колонка
+   "сотрудники ауп" на самом деле ОКАЗАЛАСЬ длиннее и подробнее (8 разделов:
+   + Инвестиционные расходы, Налоги, Постоянные косвенные — которых нет у
+   ИТР), чем колонка "сотрудники ИТР" (3 раздела). В голосовом сообщении
+   Ирина говорила наоборот — "у АУП короче, у ИТР подробнее". Сопоставление
+   ниже сделано буквально по названиям колонок в файле (как написано в самом
+   файле), а не по тому, что сказано голосом — если это не то, что имелось
+   в виду, поменять местами (AUP_STATYA_SECTIONS ↔ ITR_STATYA_SECTIONS в
+   функции statyaSectionsFor ниже) — это правка на одну строку. */
+function statyaSectionsFor(employeeCategory) {
+  return employeeCategory === 'itr' ? ITR_STATYA_SECTIONS : AUP_STATYA_SECTIONS;
+}
+
 var STATYA_GROUP = {};
-Object.keys(STATYA_SECTIONS).forEach(function (type) {
-  STATYA_SECTIONS[type].forEach(function (section) {
-    section.items.forEach(function (statya) { STATYA_GROUP[statya] = section.key; });
+[ITR_STATYA_SECTIONS, AUP_STATYA_SECTIONS].forEach(function (sections) {
+  Object.keys(sections).forEach(function (type) {
+    sections[type].forEach(function (section) {
+      section.items.forEach(function (statya) { STATYA_GROUP[statya] = section.key; });
+    });
   });
 });
 
@@ -586,7 +671,8 @@ function scrollChatToBottom() {
 /* ---------- Компоновка формы ---------- */
 
 function populateStatyaSelect(type) {
-  var sections = STATYA_SECTIONS[type] || [];
+  var employeeCategory = CURRENT_USER ? CURRENT_USER.employeeCategory : 'aup';
+  var sections = statyaSectionsFor(employeeCategory)[type] || [];
   var sel = document.getElementById('chat-statya');
   sel.innerHTML = '<option>Выберите статью</option>' + sections.map(function (section) {
     return '<optgroup label="' + escapeHtml(section.label) + '">' +
@@ -1255,6 +1341,7 @@ function loadBuhExportEmployees() {
     BUH_EMPLOYEES = data.employees || [];
     renderBuhExportList();
     renderBuhAllList(); // чтобы select-фильтр по сотруднику в "Все отчеты" тоже заполнился
+    renderBuhEmployeeList(); // вкладка "Сотрудники"
   }).catch(function () { /* страница просто останется пустой, не критично */ });
 }
 
@@ -1292,22 +1379,59 @@ function empEditFormHtml(emp) {
     '<div class="emp-edit-note">Отправленные ранее отчеты сотрудника не изменятся — поменяется только то, куда будут попадать его будущие отчеты.</div>' +
     '<div class="field"><label>Шифр проекта</label><input id="emp-edit-project-' + emp.id + '" type="text" value="' + escapeHtml(emp.projectCode || '') + '"></div>' +
     '<div class="field"><label>Заказчик по проекту</label><input id="emp-edit-customer-' + emp.id + '" type="text" value="' + escapeHtml(emp.projectCustomer || '') + '"></div>' +
-    '<div class="field"><label>Юридическое лицо</label><input id="emp-edit-legal-' + emp.id + '" type="text" value="' + escapeHtml(emp.legalEntity || '') + '"></div>' +
+    '<div class="field"><label>Юридическое лицо</label>' +
+      '<div class="select-wrap"><select id="emp-edit-legal-' + emp.id + '" onchange="onEmpEditLegalChange(\'' + emp.id + '\')">' +
+        legalEntityOptionsHtml(emp.legalEntity) +
+      '</select><svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg></div>' +
+    '</div>' +
+    '<div class="field" id="emp-edit-legal-other-wrap-' + emp.id + '"' + (LEGAL_ENTITIES.some(function (e) { return e.name === emp.legalEntity; }) || !emp.legalEntity ? ' hidden' : '') + '>' +
+      '<label>Название юрлица (вручную)</label><input id="emp-edit-legal-other-' + emp.id + '" type="text" value="' + escapeHtml(LEGAL_ENTITIES.some(function (e) { return e.name === emp.legalEntity; }) ? '' : (emp.legalEntity || '')) + '">' +
+    '</div>' +
+    '<div class="field"><label>ОКПО (для бланка АО-1)</label><input id="emp-edit-okpo-' + emp.id + '" type="text" value="' + escapeHtml(emp.legalEntityOkpo || '') + '"></div>' +
+    '<div class="field"><label>Категория</label>' +
+      '<div class="select-wrap"><select id="emp-edit-category-' + emp.id + '">' +
+        '<option value="aup"' + (emp.employeeCategory !== 'itr' ? ' selected' : '') + '>АУП</option>' +
+        '<option value="itr"' + (emp.employeeCategory === 'itr' ? ' selected' : '') + '>ИТР</option>' +
+      '</select><svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg></div>' +
+    '</div>' +
     '<div class="emp-edit-actions">' +
       '<button class="text-link" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Отмена</button>' +
       '<button class="btn-save-confirm" type="button" onclick="saveEmpEdit(\'' + emp.id + '\')">Сохранить</button>' +
     '</div></div>';
 }
 
+/* При выборе известного юрлица в форме редактирования — поле ОКПО
+   подставляется само (но остаётся редактируемым вручную, если нужно). */
+function onEmpEditLegalChange(employeeId) {
+  var sel = document.getElementById('emp-edit-legal-' + employeeId);
+  var otherWrap = document.getElementById('emp-edit-legal-other-wrap-' + employeeId);
+  var isOther = sel.value === '__other__';
+  otherWrap.hidden = !isOther;
+  if (!isOther && sel.value) {
+    document.getElementById('emp-edit-okpo-' + employeeId).value = legalEntityOkpoFor(sel.value);
+  }
+}
+
 function toggleEmpEdit(employeeId) {
   empEditOpenId = empEditOpenId === employeeId ? null : employeeId;
   renderBuhExportList();
+  renderRukEmployeeList();
+}
+
+function reloadEmployeesForCurrentRole() {
+  if (CURRENT_USER && CURRENT_USER.role === 'ruk') return loadRukEmployees();
+  return loadBuhExportEmployees();
 }
 
 function saveEmpEdit(employeeId) {
   var projectCode = document.getElementById('emp-edit-project-' + employeeId).value.trim();
   var projectCustomer = document.getElementById('emp-edit-customer-' + employeeId).value.trim();
-  var legalEntity = document.getElementById('emp-edit-legal-' + employeeId).value.trim();
+  var legalSel = document.getElementById('emp-edit-legal-' + employeeId).value;
+  var legalEntity = legalSel === '__other__'
+    ? document.getElementById('emp-edit-legal-other-' + employeeId).value.trim()
+    : legalSel;
+  var legalEntityOkpo = document.getElementById('emp-edit-okpo-' + employeeId).value.trim();
+  var employeeCategory = document.getElementById('emp-edit-category-' + employeeId).value;
   if (!projectCode) {
     window.alert('Укажите шифр проекта');
     return;
@@ -1323,10 +1447,13 @@ function saveEmpEdit(employeeId) {
   )) {
     return;
   }
-  api('/api/reports/employees/' + employeeId, { method: 'PATCH', body: { projectCode: projectCode, projectCustomer: projectCustomer, legalEntity: legalEntity } })
+  api('/api/reports/employees/' + employeeId, {
+    method: 'PATCH',
+    body: { projectCode: projectCode, projectCustomer: projectCustomer, legalEntity: legalEntity, legalEntityOkpo: legalEntityOkpo, employeeCategory: employeeCategory },
+  })
     .then(function () {
       empEditOpenId = null;
-      return loadBuhExportEmployees();
+      return reloadEmployeesForCurrentRole();
     })
     .catch(function (e) { window.alert(e.message || 'Не удалось сохранить изменения'); });
 }
@@ -1512,6 +1639,133 @@ function confirmDeleteAccountant() {
       return loadRukData();
     })
     .catch(function (e) { window.alert(e.message || 'Не удалось удалить бухгалтера'); })
+    .then(function () { btn.disabled = false; });
+}
+
+/* ========================================================================
+   Регистрация сотрудников (кабинет руководителя — вкладка "Сотрудники",
+   и кабинет бухгалтера — вкладка "Сотрудники").
+   Раньше сотрудник мог зарегистрироваться сам с главного экрана входа —
+   теперь эта возможность убрана, завести сотрудника может только
+   руководитель (в любой проект) или бухгалтер (только в свой собственный
+   проект — поле проекта в его форме не показывается, подставляется само
+   на сервере). Поля формы одинаковые для обоих кабинетов, с разными
+   id-префиксами ('ruk-emp-' / 'buh-emp-'), поэтому большинство функций ниже
+   принимают этот префикс параметром и работают для обоих кабинетов.
+   ========================================================================== */
+
+var RUK_EMPLOYEES = [];
+
+function loadRukEmployees() {
+  return api('/api/reports/employees').then(function (data) {
+    RUK_EMPLOYEES = data.employees || [];
+    renderRukEmployeeList();
+  }).catch(function () { /* страница просто останется пустой, не критично */ });
+}
+
+function renderRukEmployeeList() {
+  var wrap = document.getElementById('ruk-employee-list');
+  if (!wrap) return;
+  if (!RUK_EMPLOYEES.length) {
+    wrap.innerHTML = '<div class="recent-empty">Сотрудников пока нет — добавьте первого выше.</div>';
+    return;
+  }
+  wrap.innerHTML = RUK_EMPLOYEES.map(function (emp) {
+    var catLabel = emp.employeeCategory === 'itr' ? 'ИТР' : 'АУП';
+    var meta = [emp.projectCode, emp.legalEntity, catLabel].filter(Boolean).join(' · ');
+    var row = '<div class="export-emp-row">' +
+      '<span class="export-emp-icon"><svg class="icon"><use href="#i-users"/></svg></span>' +
+      '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
+        (meta ? '<div class="export-emp-meta">' + escapeHtml(meta) + '</div>' : '') +
+      '</div>' +
+      '<div class="export-emp-actions">' +
+        '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>' +
+      '</div></div>';
+    var editForm = empEditOpenId === emp.id ? empEditFormHtml(emp) : '';
+    return row + editForm;
+  }).join('');
+}
+
+/* Та же самая кнопка "Сотрудники" в кабинете бухгалтера — отдельный, простой
+   список (без кнопок УО/АО-1, они уже есть в "Выгрузке отчетов") плюс форма
+   регистрации нового сотрудника. Использует тот же BUH_EMPLOYEES, что и
+   "Выгрузка отчетов" — отдельного запроса не делает. */
+function renderBuhEmployeeList() {
+  var wrap = document.getElementById('buh-employee-list');
+  if (!wrap) return;
+  if (!BUH_EMPLOYEES.length) {
+    wrap.innerHTML = '<div class="recent-empty">Сотрудников пока нет — добавьте первого выше.</div>';
+    return;
+  }
+  wrap.innerHTML = BUH_EMPLOYEES.map(function (emp) {
+    var catLabel = emp.employeeCategory === 'itr' ? 'ИТР' : 'АУП';
+    var meta = [emp.legalEntity, catLabel].filter(Boolean).join(' · ');
+    return '<div class="export-emp-row">' +
+      '<span class="export-emp-icon"><svg class="icon"><use href="#i-users"/></svg></span>' +
+      '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
+        (meta ? '<div class="export-emp-meta">' + escapeHtml(meta) + '</div>' : '') +
+      '</div></div>';
+  }).join('');
+}
+
+/* При выборе известного юрлица в форме добавления сотрудника (и руководителя,
+   и бухгалтера) — поле ОКПО подставляется само. prefix — 'ruk-emp' или 'buh-emp'. */
+function onAddEmpLegalChange(prefix) {
+  var sel = document.getElementById(prefix + '-legal');
+  var otherWrap = document.getElementById(prefix + '-legal-other-wrap');
+  var isOther = sel.value === '__other__';
+  otherWrap.hidden = !isOther;
+  if (!isOther && sel.value) {
+    document.getElementById(prefix + '-okpo').value = legalEntityOkpoFor(sel.value);
+  }
+}
+
+/* isRuk = true — форма в кабинете руководителя (есть поле "Шифр проекта",
+   можно зарегистрировать в любой проект); false — форма в кабинете
+   бухгалтера (поля проекта нет вообще, сервер сам подставит текущий проект
+   этого бухгалтера). */
+function addEmployeeFromForm(prefix, isRuk) {
+  function val(id) {
+    var el = document.getElementById(prefix + '-' + id);
+    return el ? el.value.trim() : '';
+  }
+  var mail = val('mail').toLowerCase();
+  var fio = val('fio');
+  var legalSel = document.getElementById(prefix + '-legal').value;
+  var legalEntity = legalSel === '__other__' ? val('legal-other') : legalSel;
+  var legalEntityOkpo = val('okpo');
+  var category = document.getElementById(prefix + '-category').value;
+  var projectCode = isRuk ? val('project') : '';
+  var projectCustomer = val('customer');
+
+  if (!mail || !fio) { window.alert('Заполните ФИО и почту.'); return; }
+  if (!legalEntity) { window.alert('Укажите юридическое лицо.'); return; }
+  if (isRuk && !projectCode) { window.alert('Укажите шифр проекта.'); return; }
+
+  var btn = document.getElementById(prefix + '-add-btn');
+  btn.disabled = true;
+  api('/api/reports/employees', {
+    method: 'POST',
+    body: {
+      email: mail, fullName: fio, phone: val('phone'), position: val('position'), tabelNumber: val('tabel'),
+      projectCode: projectCode, projectCustomer: projectCustomer,
+      legalEntity: legalEntity, legalEntityOkpo: legalEntityOkpo, employeeCategory: category,
+    },
+  })
+    .then(function (data) {
+      ['mail', 'fio', 'phone', 'position', 'tabel', 'project', 'customer', 'legal-other', 'okpo'].forEach(function (id) {
+        var el = document.getElementById(prefix + '-' + id);
+        if (el) el.value = '';
+      });
+      document.getElementById(prefix + '-legal').value = '';
+      document.getElementById(prefix + '-legal-other-wrap').hidden = true;
+      window.alert(
+        'Сотрудник зарегистрирован.\n\nВременный пароль: ' + data.tempPassword +
+        '\n\nСообщите его сотруднику лично (телефон, мессенджер) — после первого входа он должен сменить пароль сам. Этот пароль больше нигде не показывается, сохраните его сейчас, если нужно.'
+      );
+      return isRuk ? loadRukEmployees() : loadBuhExportEmployees();
+    })
+    .catch(function (e) { window.alert(e.message || 'Не удалось зарегистрировать сотрудника'); })
     .then(function () { btn.disabled = false; });
 }
 
