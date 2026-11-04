@@ -10,6 +10,7 @@ const reportsRoutes = require('./routes-reports');
 const accountantsRoutes = require('./routes-accountants');
 const uploadsRoutes = require('./routes-uploads');
 const storage = require('./storage');
+const { startDailyDigestScheduler } = require('./daily-digest');
 
 const app = express();
 
@@ -72,3 +73,6 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`Альпсервис слушает на порту ${PORT}`));
+
+// Сводка дня бухгалтерам по почте (ежедневно в 18:00 по Москве, см. daily-digest.js)
+startDailyDigestScheduler();

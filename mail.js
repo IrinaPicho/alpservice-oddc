@@ -41,10 +41,11 @@ function getTransporter() {
   return transporter;
 }
 
-/* to — один email или массив email'ов. Ошибку отправки никогда не
-   выбрасываем наружу — письмо это "по возможности", а не обязательное
-   условие для того, чтобы отчет сохранился. */
-async function sendMail({ to, subject, text }) {
+/* to — один email или массив email'ов. attachments (необязательно) — массив
+   вложений в формате nodemailer: [{ filename, content }, ...], content —
+   Buffer. Ошибку отправки никогда не выбрасываем наружу — письмо это "по
+   возможности", а не обязательное условие для того, чтобы отчет сохранился. */
+async function sendMail({ to, subject, text, attachments }) {
   const t = getTransporter();
   if (!t || !to || (Array.isArray(to) && !to.length)) return;
   try {
@@ -53,6 +54,7 @@ async function sendMail({ to, subject, text }) {
       to: Array.isArray(to) ? to.join(', ') : to,
       subject,
       text,
+      attachments: attachments && attachments.length ? attachments : undefined,
     });
   } catch (e) {
     console.error('[mail] Не удалось отправить письмо:', e.message);

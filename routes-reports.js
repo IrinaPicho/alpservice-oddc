@@ -375,10 +375,59 @@ router.patch('/employees/:id', requireAuth, requireRole('buh', 'ruk'), async (re
   }
 });
 
+/* ---------- Общая сборка файла "Управленческий учет" (УО) ----------
+   Используется и выгрузкой бухгалтера (/export, по любому сотруднику его
+   проекта), и собственной выгрузкой сотрудника (/export/mine, только свои
+   отчеты) — чтобы формат файла (колонки, названия) был гарантированно
+   одинаковым в обоих местах. employeeName — имя "по умолчанию" для колонки
+   "Банковский счёт", если у строки нет своего employee_full_name (так и
+   бывает при /export/mine, где строки не джойнятся с users). */
+function buildUoWorkbook(rows, employeeName) {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Управленческий учет');
+  ws.columns = [
+    { header: 'Дата операции', key: 'dateOperation', width: 14 },
+    { header: 'Сумма операции', key: 'sum', width: 16 },
+    { header: 'Статья', key: 'statya', width: 34 },
+    { header: 'Назначение платежа', key: 'comment', width: 36 },
+    { header: 'Проект', key: 'project', width: 30 },
+    { header: 'Контрагент', key: 'contractor', width: 26 },
+    { header: 'Банковский счёт', key: 'account', width: 26 },
+    { header: 'Дата начисления', key: 'accrualDate', width: 16 },
+    { header: 'Юридическое лицо', key: 'legalEntity', width: 26 },
+  ];
+  ws.getRow(1).font = { bold: true };
+
+  rows.forEach((r) => {
+    ws.addRow({
+      dateOperation: new Date(r.date_iso),
+      /* Сумма всегда положительная — приход это или расход, видно по статье
+         (она сама называется "расход..." или "приход..."), отдельный знак
+         "минус" не нужен и только путает. */
+      sum: Number(r.sum),
+      statya: r.statya,
+      comment: r.comment || '',
+      project: [r.project_code, r.project_customer].filter(Boolean).join(' — '),
+      contractor: r.contractor || '',
+      account: r.employee_full_name || employeeName || '',
+      accrualDate: new Date(r.created_at),
+      legalEntity: r.legal_entity || '',
+    });
+  });
+  ws.getColumn('dateOperation').numFmt = 'dd.mm.yyyy';
+  ws.getColumn('accrualDate').numFmt = 'dd.mm.yyyy';
+  ws.getColumn('sum').numFmt = '#,##0.00';
+  return wb;
+}
+
 /* ---------- Бухгалтер: выгрузка в Excel для управленческого учета ----------
    Таблица строго по шаблону клиента: 9 колонок в этом порядке, названия не
    менять. По умолчанию — только одобренные отчеты (неподтвержденные решения
    еще не "случились" официально), за период from..to (по дате операции).
+   Если период (from/to) не выбран — показываем ВЕСЬ период, а не только
+   текущий месяц: иначе сотрудник со старыми (например, перенесенными)
+   отчетами в выгрузке выглядел бы так, будто у него вообще нет отчетов,
+   хотя они просто вне "умолчательного" месяца.
    Выгрузка всегда по одному конкретному сотруднику (employeeId) — общей
    выгрузки по всем сотрудникам сразу нет (решили не делать, это усложнение). */
 router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
@@ -422,40 +471,7 @@ router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
 
     const result = await pool.query(query, params);
 
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('Управленческий учет');
-    ws.columns = [
-      { header: 'Дата операции', key: 'dateOperation', width: 14 },
-      { header: 'Сумма операции', key: 'sum', width: 16 },
-      { header: 'Статья', key: 'statya', width: 34 },
-      { header: 'Назначение платежа', key: 'comment', width: 36 },
-      { header: 'Проект', key: 'project', width: 30 },
-      { header: 'Контрагент', key: 'contractor', width: 26 },
-      { header: 'Банковский счёт', key: 'account', width: 26 },
-      { header: 'Дата начисления', key: 'accrualDate', width: 16 },
-      { header: 'Юридическое лицо', key: 'legalEntity', width: 26 },
-    ];
-    ws.getRow(1).font = { bold: true };
-
-    result.rows.forEach((r) => {
-      ws.addRow({
-        dateOperation: new Date(r.date_iso),
-        /* Сумма всегда положительная — приход это или расход, видно по статье
-           (она сама называется "расход..." или "приход..."), отдельный знак
-           "минус" не нужен и только путает. */
-        sum: Number(r.sum),
-        statya: r.statya,
-        comment: r.comment || '',
-        project: [r.project_code, r.project_customer].filter(Boolean).join(' — '),
-        contractor: r.contractor || '',
-        account: r.employee_full_name || '',
-        accrualDate: new Date(r.created_at),
-        legalEntity: r.legal_entity || '',
-      });
-    });
-    ws.getColumn('dateOperation').numFmt = 'dd.mm.yyyy';
-    ws.getColumn('accrualDate').numFmt = 'dd.mm.yyyy';
-    ws.getColumn('sum').numFmt = '#,##0.00';
+    const wb = buildUoWorkbook(result.rows, employeeName);
 
     const asciiName = 'upravlenchesky-uchet-' + (from || 'vse') + '_' + (to || 'vse') + '.xlsx';
     const prettyName = 'УО ' + employeeName + ' ' + (from || 'весь период') + '—' + (to || 'весь период') + '.xlsx';
@@ -467,6 +483,42 @@ router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
        обрывало файл на середине, и Excel potom не мог его открыть ("ошибка
        в части содержимого", пустой файл после восстановления). Способ ниже
        от этого не зависит. */
+    const buffer = await wb.xlsx.writeBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="' + asciiName + '"; filename*=UTF-8\'\'' + encodeURIComponent(prettyName)
+    );
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Не удалось сформировать выгрузку' });
+  }
+});
+
+/* ---------- Сотрудник: собственная выгрузка в Excel ----------
+   Тот же файл "Управленческий учет" (УО), что скачивает бухгалтер, но
+   только по своим отчетам — сотруднику не нужен employeeId (это всегда он
+   сам), и доступ не привязан к проекту бухгалтера. Если период (from/to) не
+   выбран — выгружаются вообще все свои одобренные отчеты, за всё время. */
+router.get('/export/mine', requireAuth, requireRole('sotr'), async (req, res) => {
+  const { from, to } = req.query;
+  try {
+    const userResult = await pool.query('SELECT full_name FROM users WHERE id = $1', [req.user.sub]);
+    const employeeName = userResult.rows[0] ? userResult.rows[0].full_name : 'sotrudnik';
+
+    let query = `SELECT * FROM reports WHERE employee_id = $1 AND status = 'approved'`;
+    const params = [req.user.sub];
+    if (from) { params.push(from); query += ` AND date_iso >= $${params.length}`; }
+    if (to) { params.push(to); query += ` AND date_iso <= $${params.length}`; }
+    query += ' ORDER BY date_iso ASC, created_at ASC';
+    const result = await pool.query(query, params);
+
+    const wb = buildUoWorkbook(result.rows, employeeName);
+
+    const asciiName = 'moy-otchet-' + (from || 'vse') + '_' + (to || 'vse') + '.xlsx';
+    const prettyName = 'ОДДС ' + employeeName + ' ' + (from || 'весь период') + '—' + (to || 'весь период') + '.xlsx';
     const buffer = await wb.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader(
