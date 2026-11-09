@@ -1488,6 +1488,7 @@ function renderBuhExportList() {
   }
   wrap.innerHTML = BUH_EMPLOYEES.map(function (emp) {
     var meta = [emp.projectCode, emp.legalEntity].filter(Boolean).join(' · ');
+    var isEditing = empEditOpenId === emp.id;
     var row = '<div class="export-emp-row">' +
       '<span class="export-emp-icon"><svg class="icon"><use href="#i-users"/></svg></span>' +
       '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
@@ -1496,9 +1497,15 @@ function renderBuhExportList() {
       '<div class="export-emp-actions">' +
         '<button class="btn-uo" type="button" onclick="downloadExport(\'' + emp.id + '\')">УО</button>' +
         '<button class="btn-ao1" type="button" onclick="downloadAo1(\'' + emp.id + '\')">АО-1</button>' +
-        '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>' +
+        /* Пока форма редактирования открыта — эта кнопка не показывается:
+           иначе повторное нажатие по ней молча закрывало форму и стирало
+           всё введённое, не сохранив (это и было причиной бага "данные
+           сбрасываются после сохранения" — на самом деле не сохранялись
+           вообще). Закрыть/сохранить теперь можно только явными кнопками
+           "Отмена"/"Сохранить" внутри самой формы. */
+        (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
       '</div></div>';
-  var editForm = empEditOpenId === emp.id ? empEditFormHtml(emp) : '';
+    var editForm = isEditing ? empEditFormHtml(emp) : '';
     return row + editForm;
   }).join('');
 }
@@ -1820,6 +1827,7 @@ function renderRukEmployeeList() {
   wrap.innerHTML = RUK_EMPLOYEES.map(function (emp) {
     var catLabel = emp.employeeCategory === 'itr' ? 'ИТР' : 'АУП';
     var meta = [emp.projectCode, emp.legalEntity, catLabel].filter(Boolean).join(' · ');
+    var isEditing = empEditOpenId === emp.id;
     var row = '<div class="export-emp-row">' +
       '<span class="export-emp-icon"><svg class="icon"><use href="#i-users"/></svg></span>' +
       '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
@@ -1827,9 +1835,12 @@ function renderRukEmployeeList() {
         empBalanceMetaHtml(emp) +
       '</div>' +
       '<div class="export-emp-actions">' +
-        '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>' +
+        /* См. комментарий в renderBuhExportList — кнопка скрыта, пока форма
+           открыта, иначе повторное нажатие молча закрывало её и стирало
+           несохранённые изменения. */
+        (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
       '</div></div>';
-    var editForm = empEditOpenId === emp.id ? empEditFormHtml(emp) : '';
+    var editForm = isEditing ? empEditFormHtml(emp) : '';
     return row + editForm;
   }).join('');
 }
@@ -1857,6 +1868,7 @@ function renderBuhEmployeeList() {
   wrap.innerHTML = BUH_EMPLOYEES.map(function (emp) {
     var catLabel = emp.employeeCategory === 'itr' ? 'ИТР' : 'АУП';
     var meta = [emp.legalEntity, catLabel].filter(Boolean).join(' · ');
+    var isEditing = empEditOpenId === emp.id;
     var row = '<div class="export-emp-row">' +
       '<span class="export-emp-icon"><svg class="icon"><use href="#i-users"/></svg></span>' +
       '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
@@ -1864,9 +1876,12 @@ function renderBuhEmployeeList() {
         empBalanceMetaHtml(emp) +
       '</div>' +
       '<div class="export-emp-actions">' +
-        '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>' +
+        /* См. комментарий в renderBuhExportList — кнопка скрыта, пока форма
+           открыта, иначе повторное нажатие молча закрывало её и стирало
+           несохранённые изменения. */
+        (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
       '</div></div>';
-    var editForm = empEditOpenId === emp.id ? empEditFormHtml(emp) : '';
+    var editForm = isEditing ? empEditFormHtml(emp) : '';
     return row + editForm;
   }).join('');
 }
