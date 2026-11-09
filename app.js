@@ -1505,49 +1505,63 @@ function renderBuhExportList() {
            "Отмена"/"Сохранить" внутри самой формы. */
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
       '</div></div>';
-    var editForm = isEditing ? empEditFormHtml(emp) : '';
+    var editForm = isEditing ? empEditFormHtml(emp, 'exp') : '';
     return row + editForm;
   }).join('');
 }
 
 /* Форма смены проекта/юрлица/заказчика у сотрудника — открывается под его
    строкой по кнопке "Проект/юрлицо". Пароль и почту сотрудника здесь не
-   трогаем вообще, меняются только эти три поля. */
-function empEditFormHtml(emp) {
-  return '<div class="emp-edit-form" id="emp-edit-' + emp.id + '" data-original-project="' + escapeHtml(emp.projectCode || '') + '">' +
+   трогаем вообще, меняются только эти три поля.
+
+   ВАЖНО про "scope": один и тот же сотрудник может одновременно присутствовать
+   в разметке НЕСКОЛЬКИХ списков сразу (например, в кабинете бухгалтера —
+   и в "Выгрузке отчетов", и в "Сотрудниках" — оба списка отрисовываются в
+   DOM всегда, просто показывается то одна вкладка, то другая). Раньше id
+   полей формы строились только из emp.id, поэтому при открытой форме в DOM
+   оказывалось ДВА элемента с одинаковым id — document.getElementById брал
+   всегда первый (скрытый, непросмотренный пользователем), и сохранялось
+   именно то, что было в НЕМ, то есть старые значения. Из-за этого изменения
+   "не сохранялись", хотя запрос на сервер уходил и отвечал успехом. Теперь
+   каждый список передаёт свой уникальный "scope" ('exp' / 'buh' / 'ruk'),
+   и все id в форме становятся уникальными во всём документе. */
+function empEditFormHtml(emp, scope) {
+  var p = scope + '-' + emp.id;
+  return '<div class="emp-edit-form" id="emp-edit-' + p + '" data-original-project="' + escapeHtml(emp.projectCode || '') + '">' +
     '<div class="emp-edit-note">Отправленные ранее отчеты сотрудника не изменятся — поменяется только то, куда будут попадать его будущие отчеты.</div>' +
-    '<div class="field"><label>Шифр проекта</label><input id="emp-edit-project-' + emp.id + '" type="text" value="' + escapeHtml(emp.projectCode || '') + '"></div>' +
-    '<div class="field"><label>Заказчик по проекту</label><input id="emp-edit-customer-' + emp.id + '" type="text" value="' + escapeHtml(emp.projectCustomer || '') + '"></div>' +
+    '<div class="field"><label>Шифр проекта</label><input id="emp-edit-project-' + p + '" type="text" value="' + escapeHtml(emp.projectCode || '') + '"></div>' +
+    '<div class="field"><label>Заказчик по проекту</label><input id="emp-edit-customer-' + p + '" type="text" value="' + escapeHtml(emp.projectCustomer || '') + '"></div>' +
     '<div class="field"><label>Юридическое лицо</label>' +
-      '<div class="select-wrap"><select id="emp-edit-legal-' + emp.id + '" onchange="onEmpEditLegalChange(\'' + emp.id + '\')">' +
+      '<div class="select-wrap"><select id="emp-edit-legal-' + p + '" onchange="onEmpEditLegalChange(\'' + emp.id + '\', \'' + scope + '\')">' +
         legalEntityOptionsHtml(emp.legalEntity) +
       '</select><svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg></div>' +
     '</div>' +
-    '<div class="field" id="emp-edit-legal-other-wrap-' + emp.id + '"' + (LEGAL_ENTITIES.some(function (e) { return e.name === emp.legalEntity; }) || !emp.legalEntity ? ' hidden' : '') + '>' +
-      '<label>Название юрлица (вручную)</label><input id="emp-edit-legal-other-' + emp.id + '" type="text" value="' + escapeHtml(LEGAL_ENTITIES.some(function (e) { return e.name === emp.legalEntity; }) ? '' : (emp.legalEntity || '')) + '">' +
+    '<div class="field" id="emp-edit-legal-other-wrap-' + p + '"' + (LEGAL_ENTITIES.some(function (e) { return e.name === emp.legalEntity; }) || !emp.legalEntity ? ' hidden' : '') + '>' +
+      '<label>Название юрлица (вручную)</label><input id="emp-edit-legal-other-' + p + '" type="text" value="' + escapeHtml(LEGAL_ENTITIES.some(function (e) { return e.name === emp.legalEntity; }) ? '' : (emp.legalEntity || '')) + '">' +
     '</div>' +
-    '<div class="field"><label>ОКПО (для бланка АО-1)</label><input id="emp-edit-okpo-' + emp.id + '" type="text" value="' + escapeHtml(emp.legalEntityOkpo || '') + '"></div>' +
+    '<div class="field"><label>ОКПО (для бланка АО-1)</label><input id="emp-edit-okpo-' + p + '" type="text" value="' + escapeHtml(emp.legalEntityOkpo || '') + '"></div>' +
     '<div class="field"><label>Категория</label>' +
-      '<div class="select-wrap"><select id="emp-edit-category-' + emp.id + '">' +
+      '<div class="select-wrap"><select id="emp-edit-category-' + p + '">' +
         '<option value="aup"' + (emp.employeeCategory !== 'itr' ? ' selected' : '') + '>АУП</option>' +
         '<option value="itr"' + (emp.employeeCategory === 'itr' ? ' selected' : '') + '>ИТР</option>' +
       '</select><svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg></div>' +
     '</div>' +
     '<div class="emp-edit-actions">' +
       '<button class="text-link" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Отмена</button>' +
-      '<button class="btn-save-confirm" type="button" onclick="saveEmpEdit(\'' + emp.id + '\')">Сохранить</button>' +
+      '<button class="btn-save-confirm" type="button" onclick="saveEmpEdit(\'' + emp.id + '\', \'' + scope + '\')">Сохранить</button>' +
     '</div></div>';
 }
 
 /* При выборе известного юрлица в форме редактирования — поле ОКПО
    подставляется само (но остаётся редактируемым вручную, если нужно). */
-function onEmpEditLegalChange(employeeId) {
-  var sel = document.getElementById('emp-edit-legal-' + employeeId);
-  var otherWrap = document.getElementById('emp-edit-legal-other-wrap-' + employeeId);
+function onEmpEditLegalChange(employeeId, scope) {
+  var p = scope + '-' + employeeId;
+  var sel = document.getElementById('emp-edit-legal-' + p);
+  var otherWrap = document.getElementById('emp-edit-legal-other-wrap-' + p);
   var isOther = sel.value === '__other__';
   otherWrap.hidden = !isOther;
   if (!isOther && sel.value) {
-    document.getElementById('emp-edit-okpo-' + employeeId).value = legalEntityOkpoFor(sel.value);
+    document.getElementById('emp-edit-okpo-' + p).value = legalEntityOkpoFor(sel.value);
   }
 }
 
@@ -1563,15 +1577,16 @@ function reloadEmployeesForCurrentRole() {
   return loadBuhExportEmployees();
 }
 
-function saveEmpEdit(employeeId) {
-  var projectCode = document.getElementById('emp-edit-project-' + employeeId).value.trim();
-  var projectCustomer = document.getElementById('emp-edit-customer-' + employeeId).value.trim();
-  var legalSel = document.getElementById('emp-edit-legal-' + employeeId).value;
+function saveEmpEdit(employeeId, scope) {
+  var p = scope + '-' + employeeId;
+  var projectCode = document.getElementById('emp-edit-project-' + p).value.trim();
+  var projectCustomer = document.getElementById('emp-edit-customer-' + p).value.trim();
+  var legalSel = document.getElementById('emp-edit-legal-' + p).value;
   var legalEntity = legalSel === '__other__'
-    ? document.getElementById('emp-edit-legal-other-' + employeeId).value.trim()
+    ? document.getElementById('emp-edit-legal-other-' + p).value.trim()
     : legalSel;
-  var legalEntityOkpo = document.getElementById('emp-edit-okpo-' + employeeId).value.trim();
-  var employeeCategory = document.getElementById('emp-edit-category-' + employeeId).value;
+  var legalEntityOkpo = document.getElementById('emp-edit-okpo-' + p).value.trim();
+  var employeeCategory = document.getElementById('emp-edit-category-' + p).value;
   if (!projectCode) {
     window.alert('Укажите шифр проекта');
     return;
@@ -1581,7 +1596,7 @@ function saveEmpEdit(employeeId) {
      поэтому для руководителя сравнение иногда работало некорректно. Теперь
      исходный шифр проекта читаем прямо из формы (проставлен туда при её
      открытии, см. empEditFormHtml) — так надёжнее и не зависит от роли. */
-  var originalProjectCode = document.getElementById('emp-edit-' + employeeId).getAttribute('data-original-project') || '';
+  var originalProjectCode = document.getElementById('emp-edit-' + p).getAttribute('data-original-project') || '';
   var movingToOtherProject = originalProjectCode !== projectCode;
   if (movingToOtherProject && !window.confirm(
     'Сотрудник перестанет отображаться у вас в кабинете и перейдет в проект "' + projectCode + '". ' +
@@ -1593,7 +1608,7 @@ function saveEmpEdit(employeeId) {
     window.alert('Изменения не сохранены — перевод в другой проект отменён.');
     return;
   }
-  var saveBtn = document.querySelector('#emp-edit-' + employeeId + ' .btn-save-confirm');
+  var saveBtn = document.querySelector('#emp-edit-' + p + ' .btn-save-confirm');
   if (saveBtn) saveBtn.disabled = true;
   api('/api/reports/employees/' + employeeId, {
     method: 'PATCH',
@@ -1852,7 +1867,7 @@ function renderRukEmployeeList() {
            несохранённые изменения. */
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
       '</div></div>';
-    var editForm = isEditing ? empEditFormHtml(emp) : '';
+    var editForm = isEditing ? empEditFormHtml(emp, 'ruk') : '';
     return row + editForm;
   }).join('');
 }
@@ -1893,7 +1908,7 @@ function renderBuhEmployeeList() {
            несохранённые изменения. */
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
       '</div></div>';
-    var editForm = isEditing ? empEditFormHtml(emp) : '';
+    var editForm = isEditing ? empEditFormHtml(emp, 'buh') : '';
     return row + editForm;
   }).join('');
 }
