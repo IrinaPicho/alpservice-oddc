@@ -119,6 +119,9 @@ input, select, textarea { font: inherit; color: inherit; }
 /* "Отправить приход" — зелёным при выборе, отдельно от "Отправить расход"
    (красный) — чтобы сразу было видно, какой тип операции выбран сейчас. */
 #chat-tab-income.active { background: var(--green); }
+/* "Под отчет" — третьим, нейтральным цветом (не красный расход, не зелёный
+   приход), чтобы сразу отличалось от обычных отчетов. */
+#chat-tab-advance.active { background: var(--ink); }
 
 .role-hint { font-size: 13px; line-height: 1.45; color: var(--ink-soft); margin-top: 12px; }
 .screen-title { margin-top: 6px; }

@@ -716,15 +716,16 @@ function renderReportCard(report) {
   var card = document.createElement('div');
   card.className = 'msg-card';
   var editable = report.status !== 'approved';
+  var typeLabel = report.isAdvance ? 'Поступление под отчет' : report.type === 'expense' ? 'Отчет по расходу' : 'Приход';
   card.innerHTML =
     (editable ? '<button class="msg-card-edit" type="button" onclick="startEditReport(\'' + report.id + '\')" aria-label="Редактировать">' + ICON_PENCIL + '</button>' : '') +
     '<div class="msg-card-head">' + catIconChip(group, 'sm') +
-      '<div><div class="msg-card-type">' + (report.type === 'expense' ? 'Отчет по расходу' : 'Приход') + ' №' + report.reportNo + '</div></div>' +
+      '<div><div class="msg-card-type">' + typeLabel + ' №' + report.reportNo + '</div></div>' +
     '</div>' +
-    '<div class="msg-card-title">' + escapeHtml(report.statya) + '</div>' +
+    (report.isAdvance ? '' : '<div class="msg-card-title">' + escapeHtml(report.statya) + '</div>') +
     '<div class="msg-card-sum">' + report.sum.toLocaleString('ru-RU') + ' ₽</div>' +
     '<div class="msg-card-comment">Дата операции: ' + formatDate(report.dateIso) + '</div>' +
-    (report.contractor ? '<div class="msg-card-comment">Контрагент: ' + escapeHtml(report.contractor) + '</div>' : '') +
+    (!report.isAdvance && report.contractor ? '<div class="msg-card-comment">Контрагент: ' + escapeHtml(report.contractor) + '</div>' : '') +
     (report.comment ? '<div class="msg-card-comment">' + escapeHtml(report.comment) + '</div>' : '') +
     '<div class="msg-time">' + formatTimeFromTimestamp(report.createdAt) + '</div>';
   wrap.appendChild(card);
@@ -749,11 +750,22 @@ function populateStatyaSelect(type) {
   }).join('');
 }
 
+/* "Поступление под отчет" — отдельная, упрощенная вкладка (см. index.html):
+   без статьи (своя фиксированная статья ставится на сервере), без
+   контрагента и без обязательного файла — только сумма, дата и необязательный
+   комментарий. Деньги зачтутся в остаток сотрудника только после того, как
+   бухгалтер одобрит эту заявку (см. PATCH /api/reports/:id/decision). */
 function activateComposeTab(type) {
   activeComposeType = type;
+  var isAdvance = type === 'advance';
   document.getElementById('chat-tab-expense').classList.toggle('active', type === 'expense');
   document.getElementById('chat-tab-income').classList.toggle('active', type === 'income');
-  populateStatyaSelect(type);
+  document.getElementById('chat-tab-advance').classList.toggle('active', isAdvance);
+  document.getElementById('chat-advance-hint').hidden = !isAdvance;
+  document.getElementById('chat-statya-field').hidden = isAdvance;
+  document.getElementById('chat-contractor-field').hidden = isAdvance;
+  document.getElementById('chat-attach-wrap').hidden = isAdvance;
+  if (!isAdvance) populateStatyaSelect(type);
 }
 
 var ACCEPTED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
@@ -792,6 +804,14 @@ function resetComposeFields() {
   renderFilePreviews();
 }
 
+function checkAdvanceForm() {
+  var sum = document.getElementById('chat-sum').value;
+  var date = document.getElementById('chat-date').value;
+  var currentMonth = isoDate(new Date()).slice(0, 7);
+  var dateOk = date !== '' && date <= isoDate(new Date()) && date.slice(0, 7) === currentMonth;
+  document.getElementById('chat-submit').disabled = !(sum !== '' && Number(sum) > 0 && dateOk);
+}
+
 function setComposeType(type) {
   editingId = null;
   document.getElementById('chat-submit').textContent = 'Отправить';
@@ -802,6 +822,7 @@ function setComposeType(type) {
 }
 
 function checkChatForm() {
+  if (activeComposeType === 'advance') { checkAdvanceForm(); return; }
   var statya = document.getElementById('chat-statya').value;
   var sum = document.getElementById('chat-sum').value;
   var date = document.getElementById('chat-date').value;
@@ -881,18 +902,20 @@ function startEditReport(id) {
   var report = findReport(id);
   if (!report) return;
   editingId = id;
-  activateComposeTab(report.type);
+  activateComposeTab(report.isAdvance ? 'advance' : report.type);
   limitChatDateToToday();
-  document.getElementById('chat-statya').value = report.statya;
   document.getElementById('chat-sum').value = report.sum;
   document.getElementById('chat-date').value = report.dateIso;
-  document.getElementById('chat-contractor').value = report.contractor || '';
   document.getElementById('chat-comment').value = report.comment;
-  document.getElementById('chat-file').value = '';
-  selectedFiles = [];
-  keepExistingAttachment = !!(report.files && report.files.length);
-  renderFilePreviews();
-  updateAttachLabel();
+  if (!report.isAdvance) {
+    document.getElementById('chat-statya').value = report.statya;
+    document.getElementById('chat-contractor').value = report.contractor || '';
+    document.getElementById('chat-file').value = '';
+    selectedFiles = [];
+    keepExistingAttachment = !!(report.files && report.files.length);
+    renderFilePreviews();
+    updateAttachLabel();
+  }
 
   document.getElementById('chat-submit').textContent = 'Сохранить изменения';
   document.getElementById('chat-cancel-edit').hidden = false;
@@ -914,7 +937,52 @@ function uploadSelectedFiles() {
   });
 }
 
+function submitAdvanceCard() {
+  var sumEl = document.getElementById('chat-sum');
+  var dateEl = document.getElementById('chat-date');
+  var commentEl = document.getElementById('chat-comment');
+  var submitBtn = document.getElementById('chat-submit');
+
+  var sum = Number(sumEl.value);
+  var comment = commentEl.value.trim();
+  if (!sum || !dateEl.value) { return; }
+  if (dateEl.value > isoDate(new Date())) {
+    window.alert('Дата не может быть в будущем.');
+    return;
+  }
+  var dateIso = dateEl.value;
+  var editingReport = editingId ? findReport(editingId) : null;
+
+  submitBtn.disabled = true;
+
+  if (editingReport) {
+    api('/api/reports/' + editingReport.id, {
+      method: 'PATCH',
+      body: { sum: sum, dateIso: dateIso, comment: comment },
+    })
+      .then(function () { return loadEmployeeData(); })
+      .then(function () { setComposeType('advance'); })
+      .catch(function (e) { window.alert(e.message || 'Не удалось сохранить изменения'); })
+      .then(function () { submitBtn.disabled = false; });
+    return;
+  }
+
+  api('/api/reports', {
+    method: 'POST',
+    body: { isAdvance: true, sum: sum, dateIso: dateIso, comment: comment },
+  })
+    .then(function () { return loadEmployeeData(); })
+    .then(function () {
+      resetComposeFields();
+      checkChatForm();
+      scrollChatToBottom();
+    })
+    .catch(function (e) { window.alert(e.message || 'Не удалось отправить заявку'); })
+    .then(function () { submitBtn.disabled = false; });
+}
+
 function submitChatCard() {
+  if (activeComposeType === 'advance') { submitAdvanceCard(); return; }
   var statyaEl = document.getElementById('chat-statya');
   var sumEl = document.getElementById('chat-sum');
   var dateEl = document.getElementById('chat-date');
@@ -1479,6 +1547,7 @@ function onEmpEditLegalChange(employeeId) {
 function toggleEmpEdit(employeeId) {
   empEditOpenId = empEditOpenId === employeeId ? null : employeeId;
   renderBuhExportList();
+  renderBuhEmployeeList();
   renderRukEmployeeList();
 }
 
@@ -1755,6 +1824,7 @@ function renderRukEmployeeList() {
       '<span class="export-emp-icon"><svg class="icon"><use href="#i-users"/></svg></span>' +
       '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
         (meta ? '<div class="export-emp-meta">' + escapeHtml(meta) + '</div>' : '') +
+        empBalanceMetaHtml(emp) +
       '</div>' +
       '<div class="export-emp-actions">' +
         '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>' +
@@ -1762,6 +1832,15 @@ function renderRukEmployeeList() {
     var editForm = empEditOpenId === emp.id ? empEditFormHtml(emp) : '';
     return row + editForm;
   }).join('');
+}
+
+/* Строка "выдано/потрачено/остаток" под именем сотрудника — для сверки
+   бухгалтером и руководителем. emp.advanceAmount/spent/remain приходят с
+   сервера (GET /api/reports/employees), доступны только буху и руку. */
+function empBalanceMetaHtml(emp) {
+  if (emp.advanceAmount === undefined) return '';
+  return '<div class="export-emp-meta">Выдано ' + fmtSum(emp.advanceAmount) + ' ₽ · Потрачено ' +
+    fmtSum(emp.spent) + ' ₽ · Остаток ' + fmtSum(emp.remain) + ' ₽</div>';
 }
 
 /* Та же самая кнопка "Сотрудники" в кабинете бухгалтера — отдельный, простой
@@ -1778,11 +1857,17 @@ function renderBuhEmployeeList() {
   wrap.innerHTML = BUH_EMPLOYEES.map(function (emp) {
     var catLabel = emp.employeeCategory === 'itr' ? 'ИТР' : 'АУП';
     var meta = [emp.legalEntity, catLabel].filter(Boolean).join(' · ');
-    return '<div class="export-emp-row">' +
+    var row = '<div class="export-emp-row">' +
       '<span class="export-emp-icon"><svg class="icon"><use href="#i-users"/></svg></span>' +
       '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
         (meta ? '<div class="export-emp-meta">' + escapeHtml(meta) + '</div>' : '') +
+        empBalanceMetaHtml(emp) +
+      '</div>' +
+      '<div class="export-emp-actions">' +
+        '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>' +
       '</div></div>';
+    var editForm = empEditOpenId === emp.id ? empEditFormHtml(emp) : '';
+    return row + editForm;
   }).join('');
 }
 

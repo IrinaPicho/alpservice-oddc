@@ -39,9 +39,17 @@ function serializeReport(row, employee) {
     status: row.status,
     reviewerComment: row.reviewer_comment,
     createdAt: row.created_at,
+    isAdvance: !!row.is_advance,
     files: row.files || [],
   };
 }
+
+/* Статья и контрагент для операции "Поступление под отчет" — у этой операции
+   нет своей статьи из обычного списка (это не расход и не "обычный" приход по
+   проекту, а просто выдача денег сотруднику на руки), поэтому и то, и другое
+   проставляем сами, фиксированными значениями, а не спрашиваем у сотрудника. */
+const ADVANCE_STATYA = 'Поступление под отчет';
+const ADVANCE_CONTRACTOR = 'Касса компании';
 
 /* Дата отчета не может быть в будущем (проверяем и здесь, на сервере, а не
    только в календаре на сайте — защита на случай прямого запроса мимо сайта). */
@@ -66,7 +74,7 @@ function isOutsideCurrentMonth(dateIso) {
    этого же проекта (их может быть несколько). Если почта не настроена
    (см. mail.js) — просто ничего не произойдет, отчет при этом всё равно
    сохранится как обычно. */
-async function notifyBuhOfNewReport({ employeeName, projectCode, type, statya, sum, dateIso, contractor, comment, reportNo }) {
+async function notifyBuhOfNewReport({ employeeName, projectCode, type, statya, sum, dateIso, contractor, comment, reportNo, isAdvance }) {
   try {
     const buhResult = await pool.query(
       "SELECT email FROM users WHERE role = 'buh' AND project_code = $1",
@@ -75,17 +83,19 @@ async function notifyBuhOfNewReport({ employeeName, projectCode, type, statya, s
     const emails = buhResult.rows.map((r) => r.email).filter(Boolean);
     if (!emails.length) return;
 
-    const typeLabel = type === 'income' ? 'Приход' : 'Расход';
+    const typeLabel = isAdvance ? 'Поступление под отчет' : type === 'income' ? 'Приход' : 'Расход';
     const sumLabel = Number(sum).toLocaleString('ru-RU') + ' ₽';
     const lines = [
-      'Новый отчет на проверку от сотрудника ' + employeeName + ' (№' + reportNo + ').',
+      (isAdvance ? 'Новая заявка на выдачу денег под отчет от сотрудника ' : 'Новый отчет на проверку от сотрудника ')
+        + employeeName + ' (№' + reportNo + ').',
       '',
       'Тип: ' + typeLabel,
-      'Статья: ' + statya,
       'Сумма: ' + sumLabel,
       'Дата: ' + dateIso,
-      'Контрагент: ' + contractor,
     ];
+    if (!isAdvance) {
+      lines.push('Статья: ' + statya, 'Контрагент: ' + contractor);
+    }
     if (comment) lines.push('Комментарий: ' + comment);
     lines.push('', 'Проверить и одобрить можно в кабинете бухгалтера на сайте.');
 
@@ -101,7 +111,16 @@ async function notifyBuhOfNewReport({ employeeName, projectCode, type, statya, s
 
 /* ---------- Сотрудник: создать отчет ---------- */
 router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
-  const { type, statya, sum, dateIso, contractor, comment, fileIds } = req.body || {};
+  let { type, statya, sum, dateIso, contractor, comment, fileIds, isAdvance } = req.body || {};
+  isAdvance = !!isAdvance;
+  /* "Поступление под отчет" — это всегда приход, без статьи из обычного
+     списка и без контрагента (сотрудник выбирает только сумму и дату) —
+     остальное подставляем сами, см. ADVANCE_STATYA/ADVANCE_CONTRACTOR выше. */
+  if (isAdvance) {
+    type = 'income';
+    statya = ADVANCE_STATYA;
+    contractor = ADVANCE_CONTRACTOR;
+  }
   if (!type || !statya || !sum || !dateIso || !contractor) {
     return res.status(400).json({ error: 'Заполните статью, сумму, дату и контрагента' });
   }
@@ -134,9 +153,9 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
     const reportNo = seqResult.rows[0].next_no;
 
     const result = await pool.query(
-      `INSERT INTO reports (employee_id, report_no, project_code, legal_entity, legal_entity_okpo, project_customer, type, statya, sum, date_iso, contractor, comment, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending') RETURNING *`,
-      [req.user.sub, reportNo, projectCode, legalEntity, legalEntityOkpo, projectCustomer, type, statya, sum, dateIso, contractor, comment || '']
+      `INSERT INTO reports (employee_id, report_no, project_code, legal_entity, legal_entity_okpo, project_customer, type, statya, sum, date_iso, contractor, comment, status, is_advance)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', $13) RETURNING *`,
+      [req.user.sub, reportNo, projectCode, legalEntity, legalEntityOkpo, projectCustomer, type, statya, sum, dateIso, contractor, comment || '', isAdvance]
     );
     const report = result.rows[0];
 
@@ -146,6 +165,7 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
 
     notifyBuhOfNewReport({
       employeeName, projectCode, type, statya, sum, dateIso, contractor, comment, reportNo,
+      isAdvance,
     });
 
     res.status(201).json({ report: serializeReport(report) });
@@ -289,18 +309,30 @@ router.post('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, re
    Бухгалтер видит только сотрудников своего проекта (как и раньше — нужно
    для страницы "Выгрузка отчетов"). Руководитель видит всех сотрудников
    во всех проектах (своего отдельного проекта у него нет). */
+/* advance_amount (выдано на руки) берем прямо с сотрудника, а "потрачено" —
+   суммой его ОДОБРЕННЫХ расходов (expense) — чтобы бухгалтер мог сверить
+   остаток, не открывая отдельно все его отчеты. */
+const EMPLOYEE_LIST_COLUMNS = `
+  u.id, u.full_name, u.project_code, u.legal_entity, u.legal_entity_okpo,
+  u.employee_category, u.project_customer, u.advance_amount,
+  COALESCE((
+    SELECT SUM(r.sum) FROM reports r
+    WHERE r.employee_id = u.id AND r.type = 'expense' AND r.status = 'approved'
+  ), 0) AS spent
+`;
+
 router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
   try {
     let result;
     if (req.user.role === 'ruk') {
       result = await pool.query(
-        "SELECT id, full_name, project_code, legal_entity, legal_entity_okpo, employee_category, project_customer FROM users WHERE role = 'sotr' ORDER BY full_name"
+        `SELECT ${EMPLOYEE_LIST_COLUMNS} FROM users u WHERE u.role = 'sotr' ORDER BY u.full_name`
       );
     } else {
       const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
       const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
       result = await pool.query(
-        "SELECT id, full_name, project_code, legal_entity, legal_entity_okpo, employee_category, project_customer FROM users WHERE role = 'sotr' AND project_code = $1 ORDER BY full_name",
+        `SELECT ${EMPLOYEE_LIST_COLUMNS} FROM users u WHERE u.role = 'sotr' AND u.project_code = $1 ORDER BY u.full_name`,
         [projectCode]
       );
     }
@@ -313,6 +345,9 @@ router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res
         legalEntityOkpo: r.legal_entity_okpo,
         employeeCategory: r.employee_category,
         projectCustomer: r.project_customer,
+        advanceAmount: Number(r.advance_amount),
+        spent: Number(r.spent),
+        remain: Number(r.advance_amount) - Number(r.spent),
       })),
     });
   } catch (e) {
@@ -618,7 +653,13 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
   }
 });
 
-/* ---------- Бухгалтер: одобрить/отклонить (в т.ч. поменять уже принятое решение) ---------- */
+/* ---------- Бухгалтер: одобрить/отклонить (в т.ч. поменять уже принятое решение) ----------
+   Для операции "Поступление под отчет" (is_advance = true) решение бухгалтера
+   дополнительно меняет advance_amount (сколько сотруднику выдано на руки) —
+   официально это засчитывается только после одобрения, а не в момент
+   отправки заявки сотрудником. Если бухгалтер меняет уже принятое решение
+   (например, сначала одобрил, потом передумал и отклонил) — сумму на
+   сотруднике отменяем, чтобы остаток не задвоился и не "подвис". */
 router.patch('/:id/decision', requireAuth, requireRole('buh'), async (req, res) => {
   const { status, reviewerComment } = req.body || {};
   if (!['approved', 'rejected'].includes(status)) {
@@ -633,13 +674,26 @@ router.patch('/:id/decision', requireAuth, requireRole('buh'), async (req, res) 
 
     const existing = await pool.query('SELECT * FROM reports WHERE id = $1 AND project_code = $2', [req.params.id, projectCode]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'Отчет не найден' });
+    const prevStatus = existing.rows[0].status;
 
     const result = await pool.query(
       `UPDATE reports SET status = $1, reviewer_comment = $2, reviewer_id = $3, updated_at = now()
        WHERE id = $4 RETURNING *`,
       [status, reviewerComment || '', req.user.sub, req.params.id]
     );
-    res.json({ report: serializeReport(result.rows[0]) });
+    const report = result.rows[0];
+
+    if (report.is_advance && prevStatus !== status) {
+      if (status === 'approved') {
+        // Стало одобрено (и не было одобрено раньше) — засчитываем выдачу сотруднику.
+        await pool.query('UPDATE users SET advance_amount = advance_amount + $1 WHERE id = $2', [report.sum, report.employee_id]);
+      } else if (prevStatus === 'approved') {
+        // Было одобрено, решение поменяли на отклонено — отменяем ранее засчитанную выдачу.
+        await pool.query('UPDATE users SET advance_amount = advance_amount - $1 WHERE id = $2', [report.sum, report.employee_id]);
+      }
+    }
+
+    res.json({ report: serializeReport(report) });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Не удалось сохранить решение' });
