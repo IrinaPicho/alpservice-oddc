@@ -1514,7 +1514,7 @@ function renderBuhExportList() {
    строкой по кнопке "Проект/юрлицо". Пароль и почту сотрудника здесь не
    трогаем вообще, меняются только эти три поля. */
 function empEditFormHtml(emp) {
-  return '<div class="emp-edit-form" id="emp-edit-' + emp.id + '">' +
+  return '<div class="emp-edit-form" id="emp-edit-' + emp.id + '" data-original-project="' + escapeHtml(emp.projectCode || '') + '">' +
     '<div class="emp-edit-note">Отправленные ранее отчеты сотрудника не изменятся — поменяется только то, куда будут попадать его будущие отчеты.</div>' +
     '<div class="field"><label>Шифр проекта</label><input id="emp-edit-project-' + emp.id + '" type="text" value="' + escapeHtml(emp.projectCode || '') + '"></div>' +
     '<div class="field"><label>Заказчик по проекту</label><input id="emp-edit-customer-' + emp.id + '" type="text" value="' + escapeHtml(emp.projectCustomer || '') + '"></div>' +
@@ -1576,17 +1576,25 @@ function saveEmpEdit(employeeId) {
     window.alert('Укажите шифр проекта');
     return;
   }
-  var movingToOtherProject = (function () {
-    var current = BUH_EMPLOYEES.find(function (e) { return e.id === employeeId; });
-    return current && current.projectCode !== projectCode;
-  })();
+  /* Было: искали "исходный" шифр проекта поиском по BUH_EMPLOYEES — но этот
+     список пуст/не обновлён в кабинете руководителя (там свой, RUK_EMPLOYEES),
+     поэтому для руководителя сравнение иногда работало некорректно. Теперь
+     исходный шифр проекта читаем прямо из формы (проставлен туда при её
+     открытии, см. empEditFormHtml) — так надёжнее и не зависит от роли. */
+  var originalProjectCode = document.getElementById('emp-edit-' + employeeId).getAttribute('data-original-project') || '';
+  var movingToOtherProject = originalProjectCode !== projectCode;
   if (movingToOtherProject && !window.confirm(
     'Сотрудник перестанет отображаться у вас в кабинете и перейдет в проект "' + projectCode + '". ' +
     'Проверьте, что в этом проекте уже заведен бухгалтер в разделе «Бухгалтеры» — иначе его будущие отчеты ' +
     'некому будет проверять. Продолжить?'
   )) {
+    /* Явно сообщаем, что ничего не сохранилось — иначе непонятно, почему
+       форма просто закрылась/осталась как была. */
+    window.alert('Изменения не сохранены — перевод в другой проект отменён.');
     return;
   }
+  var saveBtn = document.querySelector('#emp-edit-' + employeeId + ' .btn-save-confirm');
+  if (saveBtn) saveBtn.disabled = true;
   api('/api/reports/employees/' + employeeId, {
     method: 'PATCH',
     body: { projectCode: projectCode, projectCustomer: projectCustomer, legalEntity: legalEntity, legalEntityOkpo: legalEntityOkpo, employeeCategory: employeeCategory },
@@ -1595,7 +1603,11 @@ function saveEmpEdit(employeeId) {
       empEditOpenId = null;
       return reloadEmployeesForCurrentRole();
     })
-    .catch(function (e) { window.alert(e.message || 'Не удалось сохранить изменения'); });
+    .then(function () { window.alert('Сохранено.'); })
+    .catch(function (e) {
+      if (saveBtn) saveBtn.disabled = false;
+      window.alert(e.message || 'Не удалось сохранить изменения');
+    });
 }
 
 /* Выгрузка Excel (управленческий учет) по одному сотруднику — общей выгрузки
