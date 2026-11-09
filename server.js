@@ -60,9 +60,27 @@ const SITE_FILES = [
   'demo-receipt-1.png', 'demo-receipt-2.png', 'demo-receipt-3.png', 'demo-receipt-4.png',
   'demo-receipt-1.pdf', 'demo-receipt-2.pdf',
 ];
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+/* Эти файлы меняются при каждом обновлении сайта, а браузеры (и прокси
+   по пути) любят закэшировать их надолго "по умолчанию" — из-за этого после
+   обновления сайта человек может ещё долго видеть старую версию, пока сам
+   не очистит кэш. Явно говорим браузеру: эти файлы — всегда заново
+   перепроверять на сервере, не показывать сохранённую копию без проверки.
+   Картинки/иконки (которые меняются редко) этим правилом не трогаем —
+   для них обычное кэширование только на пользу. */
+const NO_CACHE_FILES = ['index.html', 'style.css', 'app.js', 'sw.js', 'manifest.webmanifest'];
+function setNoCacheIfNeeded(res, filename) {
+  if (NO_CACHE_FILES.includes(filename)) {
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+  }
+}
+
+app.get('/', (req, res) => {
+  setNoCacheIfNeeded(res, 'index.html');
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
 app.get('/:file', (req, res, next) => {
   if (!SITE_FILES.includes(req.params.file)) return next();
+  setNoCacheIfNeeded(res, req.params.file);
   res.sendFile(path.join(__dirname, req.params.file));
 });
 
