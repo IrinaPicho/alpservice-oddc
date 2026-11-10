@@ -565,15 +565,17 @@ input, select, textarea { font: inherit; color: inherit; }
 .status-pill-rejected { background: var(--red-soft); color: var(--red); }
 
 /* ---------- bottom nav / fab ---------- */
-/* position: sticky, а не fixed — на телефонах (особенно iOS Safari) меню,
-   прибитое через position: fixed, при прокрутке страницы может на долю
-   секунды "отлипать" от низа экрана и зависать в воздухе — это известная
-   особенность мобильных браузеров при скрытии/появлении адресной строки.
-   position: sticky этого не делает, потому что браузер держит элемент
-   внутри обычного потока страницы, а не рисует его поверх отдельным слоем
-   (то же самое мы уже сделали с верхним меню в кабинете сотрудника). */
+/* Было position: sticky — задумывалось, чтобы избежать мерцания меню в
+   Safari при скрытии/появлении адресной строки. На практике оказалось хуже:
+   в мобильных браузерах (в т.ч. встроенном браузере WhatsApp) sticky-меню
+   при прокрутке списка отчетов отлипало от низа экрана — под ним становился
+   виден край следующей карточки отчета, как будто меню "висит" выше, чем
+   должно. position: fixed пришивает меню к низу ЭКРАНА (а не низу потока
+   страницы), поэтому оно всегда ровно у края, независимо от прокрутки.
+   Место под него внизу списка уже заранее зарезервировано — см. .main
+   (padding-bottom: 100px) — так что контент за меню не прячется. */
 .bottom-nav {
-  position: sticky; left: 0; right: 0; bottom: 0; z-index: 30;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
   display: flex; align-items: center; justify-content: space-around;
   padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
   background: var(--card); border-top: 1px solid var(--line);
@@ -703,14 +705,6 @@ input, select, textarea { font: inherit; color: inherit; }
 .balance-item-remain .balance-value { color: var(--green); }
 .balance-item-remain .balance-value.balance-negative,
 .balance-value.balance-negative { color: var(--red); }
-.balance-edit-row { display: flex; gap: 10px; align-items: stretch; }
-.balance-edit-row input {
-  flex: 1; height: 44px; border-radius: var(--radius-sm); border: 1px solid var(--line);
-  background: var(--card); color: var(--ink); padding-inline: 12px; font-size: 15px; font-family: var(--font-body);
-}
-.balance-edit-row input:focus { border-color: var(--brand-red); outline: none; }
-.btn-sm { width: auto; height: 44px; padding-inline: 18px; margin-top: 0; white-space: nowrap; }
-
 /* ---------- Выгрузка в Excel (кабинет бухгалтера) ---------- */
 .export-card { padding: 18px 22px; gap: 10px; margin-bottom: 18px; }
 .export-title { font-family: var(--font-display); font-weight: 600; font-size: 16px; color: var(--ink); }

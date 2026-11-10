@@ -44,11 +44,13 @@ function serializeReport(row, employee) {
   };
 }
 
-/* Статья и контрагент для операции "Поступление под отчет" — у этой операции
-   нет своей статьи из обычного списка (это не расход и не "обычный" приход по
-   проекту, а просто выдача денег сотруднику на руки), поэтому и то, и другое
-   проставляем сами, фиксированными значениями, а не спрашиваем у сотрудника. */
-const ADVANCE_STATYA = 'Поступление под отчет';
+/* Статья и контрагент для операции "Поступление под отчет" — вместо того,
+   чтобы спрашивать статью у сотрудника, подставляем сами ту же статью, что
+   есть и в обычном списке статей прихода ("поступление подотчетных средств
+   (ДДС)", см. ITR_STATYA_SECTIONS/AUP_STATYA_SECTIONS в app.js) — это один и
+   тот же смысл (деньги выданы сотруднику на руки), просто с удобной
+   вкладкой-ярлыком, а не как отдельная, отличающаяся по названию операция. */
+const ADVANCE_STATYA = 'поступление подотчетных средств (ДДС)';
 const ADVANCE_CONTRACTOR = 'Касса компании';
 
 /* Дата отчета не может быть в будущем (проверяем и здесь, на сервере, а не
@@ -309,12 +311,21 @@ router.post('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, re
    Бухгалтер видит только сотрудников своего проекта (как и раньше — нужно
    для страницы "Выгрузка отчетов"). Руководитель видит всех сотрудников
    во всех проектах (своего отдельного проекта у него нет). */
-/* advance_amount (выдано на руки) берем прямо с сотрудника, а "потрачено" —
-   суммой его ОДОБРЕННЫХ расходов (expense) — чтобы бухгалтер мог сверить
-   остаток, не открывая отдельно все его отчеты. */
+/* "Выдано" и "потрачено" считаем ЖИВЬЕМ, суммой ОДОБРЕННЫХ отчетов сотрудника:
+   выдано — сумма его отчетов прихода (income), потрачено — сумма отчетов
+   расхода (expense). Раньше "выдано" было отдельным полем advance_amount,
+   которое сотрудник вписывал вручную (или которое прибавлялось при одобрении
+   операции "Поступление под отчет") — по просьбе клиента это убрали: ручного
+   поля больше нет, и быть отдельного "особого" случая для операции "Под
+   отчет" тоже больше не должно — она такой же приходный отчет, как и любой
+   другой, и участвует в сумме наравне со всеми. */
 const EMPLOYEE_LIST_COLUMNS = `
   u.id, u.full_name, u.project_code, u.legal_entity, u.legal_entity_okpo,
-  u.employee_category, u.project_customer, u.advance_amount,
+  u.employee_category, u.project_customer,
+  COALESCE((
+    SELECT SUM(r.sum) FROM reports r
+    WHERE r.employee_id = u.id AND r.type = 'income' AND r.status = 'approved'
+  ), 0) AS advance_amount,
   COALESCE((
     SELECT SUM(r.sum) FROM reports r
     WHERE r.employee_id = u.id AND r.type = 'expense' AND r.status = 'approved'
@@ -586,7 +597,12 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
        (на случай, если его потом перевели в другой проект) — чтобы перевод
        сотрудника не отрезал бухгалтера от его же старых одобренных отчетов. */
     const employeeResult = await pool.query(
-      `SELECT full_name, tabel_number, position, legal_entity, legal_entity_okpo, project_customer, advance_amount FROM users u
+      `SELECT u.full_name, u.tabel_number, u.position, u.legal_entity, u.legal_entity_okpo, u.project_customer,
+         COALESCE((
+           SELECT SUM(r.sum) FROM reports r
+           WHERE r.employee_id = u.id AND r.type = 'income' AND r.status = 'approved'
+         ), 0) AS advance_amount
+       FROM users u
        WHERE u.id = $1 AND u.role = 'sotr'
        AND (u.project_code = $2 OR EXISTS (SELECT 1 FROM reports r WHERE r.employee_id = u.id AND r.project_code = $2))`,
       [employeeId, projectCode]
@@ -654,12 +670,12 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
 });
 
 /* ---------- Бухгалтер: одобрить/отклонить (в т.ч. поменять уже принятое решение) ----------
-   Для операции "Поступление под отчет" (is_advance = true) решение бухгалтера
-   дополнительно меняет advance_amount (сколько сотруднику выдано на руки) —
-   официально это засчитывается только после одобрения, а не в момент
-   отправки заявки сотрудником. Если бухгалтер меняет уже принятое решение
-   (например, сначала одобрил, потом передумал и отклонил) — сумму на
-   сотруднике отменяем, чтобы остаток не задвоился и не "подвис". */
+   "Выдано на руки" у сотрудника теперь считается сам живым подсчетом суммы
+   его одобренных отчетов прихода (см. EMPLOYEE_LIST_COLUMNS выше и /ao1
+   ниже) — поэтому отдельно обновлять какое-то число на самом сотруднике
+   здесь больше не нужно: как только отчет "Поступление под отчет" (или
+   любой другой приход) становится одобренным, он тут же учтется в этой
+   сумме сам, без какого-то отдельного шага. */
 router.patch('/:id/decision', requireAuth, requireRole('buh'), async (req, res) => {
   const { status, reviewerComment } = req.body || {};
   if (!['approved', 'rejected'].includes(status)) {
@@ -674,7 +690,6 @@ router.patch('/:id/decision', requireAuth, requireRole('buh'), async (req, res) 
 
     const existing = await pool.query('SELECT * FROM reports WHERE id = $1 AND project_code = $2', [req.params.id, projectCode]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'Отчет не найден' });
-    const prevStatus = existing.rows[0].status;
 
     const result = await pool.query(
       `UPDATE reports SET status = $1, reviewer_comment = $2, reviewer_id = $3, updated_at = now()
@@ -682,16 +697,6 @@ router.patch('/:id/decision', requireAuth, requireRole('buh'), async (req, res) 
       [status, reviewerComment || '', req.user.sub, req.params.id]
     );
     const report = result.rows[0];
-
-    if (report.is_advance && prevStatus !== status) {
-      if (status === 'approved') {
-        // Стало одобрено (и не было одобрено раньше) — засчитываем выдачу сотруднику.
-        await pool.query('UPDATE users SET advance_amount = advance_amount + $1 WHERE id = $2', [report.sum, report.employee_id]);
-      } else if (prevStatus === 'approved') {
-        // Было одобрено, решение поменяли на отклонено — отменяем ранее засчитанную выдачу.
-        await pool.query('UPDATE users SET advance_amount = advance_amount - $1 WHERE id = $2', [report.sum, report.employee_id]);
-      }
-    }
 
     res.json({ report: serializeReport(report) });
   } catch (e) {

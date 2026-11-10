@@ -495,7 +495,7 @@ var ITR_STATYA_SECTIONS = {
   income: [
     { key: 'vozvrat_income', label: 'Возврат', items: ['Возврат'] },
     { key: 'return_dds', label: 'ДДС', items: [
-      'возврат подотчетных средств (ДДС)', 'кредит, займ', 'Возврат от поставщика'
+      'поступление подотчетных средств (ДДС)', 'кредит, займ', 'Возврат от поставщика'
     ] },
     { key: 'other_income', label: 'Прочие доходы', items: ['Прочее поступление'] }
   ]
@@ -551,7 +551,7 @@ var AUP_STATYA_SECTIONS = {
   income: [
     { key: 'vozvrat_income', label: 'Возврат', items: ['Возврат'] },
     { key: 'return_dds', label: 'ДДС', items: [
-      'возврат депозита', 'возврат обеспечения с ЭТП', 'возврат подотчетных средств (ДДС)',
+      'возврат депозита', 'возврат обеспечения с ЭТП', 'поступление подотчетных средств (ДДС)',
       'займ от собственика', 'кредит, займ'
     ] },
     { key: 'invest_income', label: 'Доход от инвестиционной деятельности', items: [
@@ -1045,13 +1045,18 @@ function reports() {
 function fmtSum(n) { return Math.round(n).toLocaleString('ru-RU'); }
 
 /* ---------- Остаток (сальдо) на главной странице сотрудника ----------
-   Сотрудник сам один раз указывает, сколько ему выдали на руки. Дальше система
-   сама вычитает все его расходы (по всем отчетам, независимо от статуса проверки —
-   деньги уже потрачены по факту) и показывает остаток. */
+   Раньше сотрудник сам вручную вписывал, сколько ему выдали на руки (поле
+   "Сколько выдали на руки" + кнопка "Сохранить"). Теперь так делать нельзя —
+   это поле убрали совсем. "Выдано" теперь считается само, из его же
+   отправленных отчетов прихода (type === 'income'), точно так же, как
+   "потрачено" уже считалось из отчетов расхода — по всем отчетам, независимо
+   от статуса проверки (деньги по факту уже получены/потрачены в момент
+   отправки отчета, проверка бухгалтера это задним числом не отменяет). */
 function renderBalance() {
   var card = document.getElementById('balance-card');
   if (!card) return;
-  var advance = Number((CURRENT_USER && CURRENT_USER.advanceAmount) || 0);
+  var advance = reports().filter(function (r) { return r.type === 'income'; })
+    .reduce(function (acc, r) { return acc + r.sum; }, 0);
   var spent = reports().filter(function (r) { return r.type === 'expense'; })
     .reduce(function (acc, r) { return acc + r.sum; }, 0);
   var remain = advance - spent;
@@ -1060,20 +1065,6 @@ function renderBalance() {
   var remainEl = document.getElementById('balance-remain');
   remainEl.textContent = fmtSum(remain) + ' ₽';
   remainEl.classList.toggle('balance-negative', remain < 0);
-  var input = document.getElementById('balance-input');
-  if (document.activeElement !== input) { input.value = advance || ''; }
-}
-
-function updateAdvance() {
-  var input = document.getElementById('balance-input');
-  var amount = Number(input.value);
-  if (!input.value || isNaN(amount) || amount < 0) { window.alert('Укажите сумму — сколько выдали на руки.'); return; }
-  api('/api/auth/advance', { method: 'PATCH', body: { amount: amount } })
-    .then(function (data) {
-      CURRENT_USER.advanceAmount = data.advanceAmount;
-      renderBalance();
-    })
-    .catch(function (e) { window.alert(e.message || 'Не удалось сохранить сумму'); });
 }
 
 function renderStats() {

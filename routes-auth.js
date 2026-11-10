@@ -69,24 +69,6 @@ router.get('/me', requireAuth, async (req, res) => {
   res.json({ user });
 });
 
-/* ---------- Сотрудник: указать/обновить сумму, выданную на руки ----------
-   Основа для остатка (сальдо) на дашборде: остаток = эта сумма минус сумма
-   собственных отчетов по расходам. */
-router.patch('/advance', requireAuth, async (req, res) => {
-  const amount = Number((req.body || {}).amount);
-  if (!(amount >= 0)) return res.status(400).json({ error: 'Укажите сумму не меньше нуля' });
-  try {
-    const result = await pool.query(
-      'UPDATE users SET advance_amount = $1 WHERE id = $2 RETURNING advance_amount',
-      [amount, req.user.sub]
-    );
-    res.json({ advanceAmount: Number(result.rows[0].advance_amount) });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'Не удалось сохранить сумму' });
-  }
-});
-
 /* ---------- Смена пароля (сотрудник/бухгалтер сами себе) ---------- */
 router.post('/change-password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
