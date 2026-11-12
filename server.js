@@ -11,6 +11,7 @@ const accountantsRoutes = require('./routes-accountants');
 const uploadsRoutes = require('./routes-uploads');
 const storage = require('./storage');
 const { startDailyDigestScheduler } = require('./daily-digest');
+const { startTelegramBot } = require('./telegram-bot');
 
 const app = express();
 
@@ -94,3 +95,6 @@ app.listen(PORT, () => console.log(`Альпсервис слушает на п�
 
 // Сводка дня бухгалтерам по почте (ежедневно в 18:00 по Москве, см. daily-digest.js)
 startDailyDigestScheduler();
+
+// Telegram-бот: напоминание сотрудникам заполнить отчёт (ежедневно в 18:00 по Москве, см. telegram-bot.js)
+startTelegramBot();
