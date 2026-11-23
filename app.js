@@ -607,6 +607,7 @@ var ICON_PENCIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 var THREAD = [];      // {kind:'divider', label} | {kind:'user', ...report} | {kind:'bot', status, text}
 var ALL_REPORTS = []; // список отчетов (своих — у сотрудника, всех по проекту — у бухгалтера/руководителя)
 var activeComposeType = 'expense';
+var advanceMode = false;
 var editingId = null;
 
 var MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -750,22 +751,35 @@ function populateStatyaSelect(type) {
   }).join('');
 }
 
-/* "Поступление под отчет" — отдельная, упрощенная вкладка (см. index.html):
-   без статьи (своя фиксированная статья ставится на сервере), без
+/* "Поступление под отчет" — не отдельная вкладка, а флажок внутри вкладки
+   "Отправить приход" (см. index.html, #chat-advance-toggle-wrap): когда он
+   включен — без статьи (своя фиксированная статья ставится на сервере), без
    контрагента и без обязательного файла — только сумма, дата и необязательный
    комментарий. Деньги зачтутся в остаток сотрудника только после того, как
    бухгалтер одобрит эту заявку (см. PATCH /api/reports/:id/decision). */
 function activateComposeTab(type) {
   activeComposeType = type;
-  var isAdvance = type === 'advance';
   document.getElementById('chat-tab-expense').classList.toggle('active', type === 'expense');
   document.getElementById('chat-tab-income').classList.toggle('active', type === 'income');
-  document.getElementById('chat-tab-advance').classList.toggle('active', isAdvance);
-  document.getElementById('chat-advance-hint').hidden = !isAdvance;
-  document.getElementById('chat-statya-field').hidden = isAdvance;
-  document.getElementById('chat-contractor-field').hidden = isAdvance;
-  document.getElementById('chat-attach-wrap').hidden = isAdvance;
-  if (!isAdvance) populateStatyaSelect(type);
+  document.getElementById('chat-advance-toggle-wrap').hidden = type !== 'income';
+  document.getElementById('chat-advance-toggle').checked = false;
+  advanceMode = false;
+  document.getElementById('chat-advance-hint').hidden = true;
+  document.getElementById('chat-statya-field').hidden = false;
+  document.getElementById('chat-contractor-field').hidden = false;
+  document.getElementById('chat-attach-wrap').hidden = false;
+  populateStatyaSelect(type);
+}
+
+/* Флажок "Это поступление под отчет" внутри вкладки "Отправить приход" —
+   включает/выключает упрощенный режим (см. комментарий выше). */
+function toggleAdvanceMode() {
+  advanceMode = document.getElementById('chat-advance-toggle').checked;
+  document.getElementById('chat-advance-hint').hidden = !advanceMode;
+  document.getElementById('chat-statya-field').hidden = advanceMode;
+  document.getElementById('chat-contractor-field').hidden = advanceMode;
+  document.getElementById('chat-attach-wrap').hidden = advanceMode;
+  checkChatForm();
 }
 
 var ACCEPTED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
@@ -822,7 +836,7 @@ function setComposeType(type) {
 }
 
 function checkChatForm() {
-  if (activeComposeType === 'advance') { checkAdvanceForm(); return; }
+  if (activeComposeType === 'income' && advanceMode) { checkAdvanceForm(); return; }
   var statya = document.getElementById('chat-statya').value;
   var sum = document.getElementById('chat-sum').value;
   var date = document.getElementById('chat-date').value;
@@ -902,12 +916,15 @@ function startEditReport(id) {
   var report = findReport(id);
   if (!report) return;
   editingId = id;
-  activateComposeTab(report.isAdvance ? 'advance' : report.type);
+  activateComposeTab(report.isAdvance ? 'income' : report.type);
   limitChatDateToToday();
   document.getElementById('chat-sum').value = report.sum;
   document.getElementById('chat-date').value = report.dateIso;
   document.getElementById('chat-comment').value = report.comment;
-  if (!report.isAdvance) {
+  if (report.isAdvance) {
+    document.getElementById('chat-advance-toggle').checked = true;
+    toggleAdvanceMode();
+  } else {
     document.getElementById('chat-statya').value = report.statya;
     document.getElementById('chat-contractor').value = report.contractor || '';
     document.getElementById('chat-file').value = '';
@@ -961,7 +978,7 @@ function submitAdvanceCard() {
       body: { sum: sum, dateIso: dateIso, comment: comment },
     })
       .then(function () { return loadEmployeeData(); })
-      .then(function () { setComposeType('advance'); })
+      .then(function () { setComposeType('income'); })
       .catch(function (e) { window.alert(e.message || 'Не удалось сохранить изменения'); })
       .then(function () { submitBtn.disabled = false; });
     return;
@@ -982,7 +999,7 @@ function submitAdvanceCard() {
 }
 
 function submitChatCard() {
-  if (activeComposeType === 'advance') { submitAdvanceCard(); return; }
+  if (activeComposeType === 'income' && advanceMode) { submitAdvanceCard(); return; }
   var statyaEl = document.getElementById('chat-statya');
   var sumEl = document.getElementById('chat-sum');
   var dateEl = document.getElementById('chat-date');
@@ -1217,8 +1234,9 @@ function renderAll() {
 
 var buhFilter = 'all';
 var buhEmployeeFilter = 'all'; // 'all' или id сотрудника — фильтр по сотруднику в "Все отчеты"
+var buhQueueEmployeeFilter = 'all'; // 'all' или id сотрудника — фильтр по сотруднику в "На проверке"
 var expandedReviewIds = {}; // id -> true — отчеты в "Все отчеты", развёрнутые кликом для проверки/правки решения
-var BUH_EMPLOYEES = []; // список сотрудников проекта — для страницы "Выгрузка отчетов" и фильтра в "Все отчеты"
+var BUH_EMPLOYEES = []; // список сотрудников проекта — для страницы "Выгрузка отчетов" и фильтров по сотруднику
 
 function findAnyReport(id) {
   for (var i = 0; i < ALL_REPORTS.length; i++) {
@@ -1380,11 +1398,22 @@ function renderBuhDashboardQueue() {
   }).join('');
 }
 
+function setBuhQueueEmployeeFilter(employeeId) {
+  buhQueueEmployeeFilter = employeeId;
+  renderBuhQueue();
+}
+
 function renderBuhQueue() {
+  renderBuhEmployeeFilterOptions();
   var wrap = document.getElementById('buh-queue-list');
   var items = buhPending();
+  if (buhQueueEmployeeFilter !== 'all') {
+    items = items.filter(function (r) { return r.employeeId === buhQueueEmployeeFilter; });
+  }
   if (!items.length) {
-    wrap.innerHTML = '<div class="recent-empty">Все отчеты проверены — очередь пуста.</div>';
+    wrap.innerHTML = '<div class="recent-empty">' +
+      (buhQueueEmployeeFilter !== 'all' ? 'У этого сотрудника нет отчетов на проверке.' : 'Все отчеты проверены — очередь пуста.') +
+      '</div>';
     return;
   }
   wrap.innerHTML = items.map(function (r) { return reviewCardHtml(r, { context: 'queue' }); }).join('');
@@ -1404,11 +1433,12 @@ function setBuhEmployeeFilter(employeeId) {
   renderBuhAllList();
 }
 
-/* Список сотрудников в select-е "Все отчеты" берём из BUH_EMPLOYEES (уже
-   загружен для страницы "Выгрузка отчетов") — просто перерисовываем select,
-   если он ещё пустой или отличается по составу. */
-function renderBuhEmployeeFilterOptions() {
-  var sel = document.getElementById('buh-all-employee-filter');
+/* Список сотрудников в select-ах "Сотрудник" (в "На проверке" и в "Все
+   отчеты") берём из BUH_EMPLOYEES (уже загружен для страницы "Выгрузка
+   отчетов") — просто перерисовываем select, если он ещё пустой или
+   отличается по составу. */
+function fillEmployeeFilterSelect(selectId) {
+  var sel = document.getElementById(selectId);
   if (!sel || !BUH_EMPLOYEES.length) return;
   if (sel.options.length - 1 === BUH_EMPLOYEES.length) return; // уже заполнен
   var current = sel.value || 'all';
@@ -1417,6 +1447,11 @@ function renderBuhEmployeeFilterOptions() {
       return '<option value="' + emp.id + '">' + escapeHtml(emp.fullName) + '</option>';
     }).join('');
   sel.value = current;
+}
+
+function renderBuhEmployeeFilterOptions() {
+  fillEmployeeFilterSelect('buh-all-employee-filter');
+  fillEmployeeFilterSelect('buh-queue-employee-filter');
 }
 
 function renderBuhAllList() {
@@ -1463,7 +1498,8 @@ function loadBuhExportEmployees() {
   return api('/api/reports/employees').then(function (data) {
     BUH_EMPLOYEES = data.employees || [];
     renderBuhExportList();
-    renderBuhAllList(); // чтобы select-фильтр по сотруднику в "Все отчеты" тоже заполнился
+    renderBuhEmployeeFilterOptions(); // чтобы select-фильтры по сотруднику ("На проверке" и "Все отчеты") заполнились
+    renderBuhAllList();
     renderBuhEmployeeList(); // вкладка "Сотрудники"
   }).catch(function () { /* страница просто останется пустой, не критично */ });
 }

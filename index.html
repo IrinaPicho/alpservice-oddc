@@ -269,11 +269,14 @@
               <div class="tabs">
                 <button id="chat-tab-expense" class="tab active" type="button" onclick="setComposeType('expense')">Отправить расход</button>
                 <button id="chat-tab-income" class="tab" type="button" onclick="setComposeType('income')">Отправить приход</button>
-                <button id="chat-tab-advance" class="tab" type="button" onclick="setComposeType('advance')" title="Поступление под отчет">Под отчет</button>
               </div>
             </div>
 
             <div class="chat-compose">
+              <div class="consent" id="chat-advance-toggle-wrap" hidden>
+                <input id="chat-advance-toggle" type="checkbox" onchange="toggleAdvanceMode()">
+                <label for="chat-advance-toggle">Это поступление под отчет (без статьи и чека)</label>
+              </div>
               <div class="recent-empty" id="chat-advance-hint" hidden>Заявка на выдачу денег под отчет — укажите сумму и дату, статья и контрагент не нужны. Деньги зачтутся на ваш остаток, как только бухгалтер одобрит заявку.</div>
               <div class="field" id="chat-statya-field">
                 <label for="chat-statya">Статья<span class="required-mark">*</span></label>
@@ -451,6 +454,15 @@
           <div class="view-head">
             <h1>На проверке</h1>
             <div class="dash-object">Проверяйте и одобряйте или отклоняйте отчеты сотрудников</div>
+          </div>
+          <div class="field buh-employee-filter-field">
+            <label for="buh-queue-employee-filter">Сотрудник</label>
+            <div class="select-wrap">
+              <select id="buh-queue-employee-filter" onchange="setBuhQueueEmployeeFilter(this.value)">
+                <option value="all">Все сотрудники</option>
+              </select>
+              <svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg>
+            </div>
           </div>
           <div class="review-list" id="buh-queue-list"></div>
         </section>
