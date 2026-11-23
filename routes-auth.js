@@ -5,6 +5,17 @@ const { issueToken, setAuthCookie, clearAuthCookie, requireAuth } = require('./j
 
 const router = express.Router();
 
+/* Дополнительные проекты (employee_projects) — только у сотрудника имеет
+   смысл, но безопасно вызвать и для бухгалтера/руководителя (просто вернёт
+   пустой список, строк для них там не бывает). */
+async function getAdditionalProjects(userId) {
+  const result = await pool.query(
+    'SELECT project_code, project_customer FROM employee_projects WHERE employee_id = $1 ORDER BY created_at',
+    [userId]
+  );
+  return result.rows.map((r) => ({ projectCode: r.project_code, projectCustomer: r.project_customer }));
+}
+
 /* ---------- Самостоятельной регистрации больше нет ----------
    Раньше сотрудник мог завести себе аккаунт сам, с главного экрана входа.
    По просьбе Ирины эту возможность убрали полностью — теперь завести
@@ -39,6 +50,7 @@ router.post('/login', async (req, res) => {
 
     const token = issueToken({ id: user.id, role: user.role, email: user.email });
     setAuthCookie(res, token);
+    const additionalProjects = await getAdditionalProjects(user.id);
     res.json({
       user: {
         id: user.id, email: user.email, role: user.role, fullName: user.full_name,
@@ -46,6 +58,7 @@ router.post('/login', async (req, res) => {
         legalEntity: user.legal_entity, legalEntityOkpo: user.legal_entity_okpo,
         employeeCategory: user.employee_category,
         mustChangePassword: user.must_change_password, advanceAmount: Number(user.advance_amount || 0),
+        additionalProjects,
       },
     });
   } catch (e) {
@@ -66,7 +79,8 @@ router.get('/me', requireAuth, async (req, res) => {
   );
   const user = result.rows[0];
   if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
-  res.json({ user });
+  const additionalProjects = await getAdditionalProjects(user.id);
+  res.json({ user: Object.assign({}, user, { additional_projects: additionalProjects }) });
 });
 
 /* ---------- Смена пароля (сотрудник/бухгалтер сами себе) ---------- */

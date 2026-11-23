@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS reports (
   updated_at        timestamptz NOT NULL DEFAULT now()
 );
 
+-- Дополнительные проекты сотрудника — кроме основного шифра проекта (users.project_code)
+-- сотрудник может быть привязан к любому числу других проектов (работает сразу на
+-- нескольких объектах) и при отправке отчета сам выбирает, по какому из них отчитывается.
+CREATE TABLE IF NOT EXISTS employee_projects (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id       uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_code      text NOT NULL,
+  project_customer  text,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS report_files (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   -- NULL, пока файл только загружен и ещё не привязан к отчету (см. POST /api/uploads
@@ -55,6 +66,7 @@ CREATE TABLE IF NOT EXISTS report_files (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS idx_employee_projects_employee ON employee_projects(employee_id);
 CREATE INDEX IF NOT EXISTS idx_reports_employee ON reports(employee_id);
 CREATE INDEX IF NOT EXISTS idx_reports_project_code ON reports(project_code);
 CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);

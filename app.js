@@ -96,6 +96,7 @@ function enterWorkspace(name) {
   document.getElementById('auth-wrap').hidden = true;
   document.getElementById('workspace').hidden = false;
   showView('dashboard');
+  renderProjectSelect();
   return loadEmployeeData();
 }
 
@@ -142,7 +143,7 @@ function tryRestoreSession() {
       id: u.id, email: u.email, role: u.role, fullName: u.full_name,
       projectCode: u.project_code, projectCustomer: u.project_customer, advanceAmount: u.advance_amount,
       legalEntity: u.legal_entity, legalEntityOkpo: u.legal_entity_okpo, employeeCategory: u.employee_category,
-      mustChangePassword: u.must_change_password,
+      mustChangePassword: u.must_change_password, additionalProjects: u.additional_projects || [],
     };
     maybeForcePasswordChange();
     var name = u.full_name || u.email;
@@ -343,32 +344,56 @@ function togglePass(id, btn) {
     : '<svg class="icon"><use href="#i-eye-off"/></svg>';
 }
 
-/* ---------- Обязательная смена временного пароля ----------
-   Если руководитель/бухгалтер только что завёл аккаунт (временный пароль,
-   см. routes-accountants.js и routes-reports.js POST /employees) — сервер
-   присылает mustChangePassword: true, и вместо кабинета поверх него
-   показывается эта модалка, пока человек не задаст свой собственный пароль.
-   Проверяется и сразу после входа (attemptLogin), и после восстановления
-   сессии при обновлении страницы (tryRestoreSession). */
+/* ---------- Смена пароля — и обязательная, и по желанию ----------
+   Одна и та же модалка используется в двух случаях:
+   1) Обязательная смена временного пароля — если руководитель/бухгалтер
+      только что завёл аккаунт (временный пароль, см. routes-accountants.js
+      и routes-reports.js POST /employees), сервер присылает
+      mustChangePassword: true, и модалка показывается поверх кабинета сама,
+      без возможности её закрыть, не сменив пароль (см. maybeForcePasswordChange,
+      вызывается и сразу после входа, и после восстановления сессии при
+      обновлении страницы).
+   2) По желанию — ссылка "Сменить пароль" внизу бокового меню (есть у
+      сотрудника, бухгалтера и руководителя), доступна в любой момент.
+   passwordChangeForced запоминает, в каком из двух случаев открыта модалка
+   сейчас — от этого зависят тексты и поведение кнопки "Отмена"/"Выйти". */
+var passwordChangeForced = false;
+
+function openPasswordChangeModal(forced) {
+  var overlay = document.getElementById('change-password-overlay');
+  if (!overlay) return;
+  passwordChangeForced = forced;
+  document.getElementById('cp-current').value = '';
+  document.getElementById('cp-new').value = '';
+  document.getElementById('cp-confirm').value = '';
+  document.getElementById('cp-error').hidden = true;
+  document.getElementById('cp-title').textContent = forced ? 'Задайте свой пароль' : 'Смена пароля';
+  document.getElementById('cp-desc').textContent = forced
+    ? 'Пароль, который вам передали, — временный. Задайте свой собственный, чтобы продолжить.'
+    : 'Введите текущий пароль и новый, которым хотите его заменить.';
+  document.getElementById('cp-current-label').textContent = forced ? 'Временный пароль' : 'Текущий пароль';
+  document.getElementById('cp-current').placeholder = forced ? 'Пароль, который вам передали' : 'Ваш текущий пароль';
+  document.getElementById('cp-cancel-btn').textContent = forced ? 'Выйти' : 'Отмена';
+  overlay.hidden = false;
+}
+
 function maybeForcePasswordChange() {
   var overlay = document.getElementById('change-password-overlay');
   if (!overlay) return;
   if (CURRENT_USER && CURRENT_USER.mustChangePassword) {
-    document.getElementById('cp-current').value = '';
-    document.getElementById('cp-new').value = '';
-    document.getElementById('cp-confirm').value = '';
-    document.getElementById('cp-error').hidden = true;
-    overlay.hidden = false;
+    openPasswordChangeModal(true);
   } else {
     overlay.hidden = true;
   }
 }
 
-/* Если человек не хочет/не может сменить пароль прямо сейчас — выходим,
-   а не оставляем его запертым в модалке без выхода из аккаунта. */
+/* Принудительная смена (временный пароль) — нажатие "Выйти" выходит из
+   аккаунта, так как оставлять человека в кабинете со старым временным
+   паролем нельзя. Добровольная смена — просто закрывает модалку, ничего
+   не меняя. */
 function cancelPasswordChange() {
   document.getElementById('change-password-overlay').hidden = true;
-  doLogout();
+  if (passwordChangeForced) doLogout();
 }
 
 function submitPasswordChange() {
@@ -379,7 +404,9 @@ function submitPasswordChange() {
   var btn = document.getElementById('cp-submit-btn');
 
   if (!current) {
-    errorEl.textContent = 'Введите временный пароль, который вам передали.';
+    errorEl.textContent = passwordChangeForced
+      ? 'Введите временный пароль, который вам передали.'
+      : 'Введите текущий пароль.';
     errorEl.hidden = false;
     return;
   }
@@ -398,8 +425,10 @@ function submitPasswordChange() {
   btn.disabled = true;
   api('/api/auth/change-password', { method: 'POST', body: { currentPassword: current, newPassword: pass1 } })
     .then(function () {
+      var wasVoluntary = !passwordChangeForced;
       CURRENT_USER.mustChangePassword = false;
       document.getElementById('change-password-overlay').hidden = true;
+      if (wasVoluntary) window.alert('Пароль изменён.');
     })
     .catch(function (e) {
       errorEl.textContent = (e.data && e.data.error) || 'Не удалось сменить пароль, попробуйте ещё раз.';
@@ -751,6 +780,35 @@ function populateStatyaSelect(type) {
   }).join('');
 }
 
+/* ---------- Выбор проекта при отправке отчета ----------
+   Сотрудник может работать сразу на нескольких проектах (основной —
+   CURRENT_USER.projectCode, остальные — CURRENT_USER.additionalProjects,
+   см. routes-auth.js). Если проект всего один — выпадающий список скрыт
+   (показывать нечего), но значение в нём всё равно выставлено — его и
+   отправляем на сервер вместе с отчетом (см. submitChatCard/submitAdvanceCard). */
+function availableProjects() {
+  var list = [];
+  if (CURRENT_USER && CURRENT_USER.projectCode) {
+    list.push({ code: CURRENT_USER.projectCode, customer: CURRENT_USER.projectCustomer });
+  }
+  (CURRENT_USER && CURRENT_USER.additionalProjects || []).forEach(function (p) {
+    list.push({ code: p.projectCode, customer: p.projectCustomer });
+  });
+  return list;
+}
+
+function renderProjectSelect() {
+  var field = document.getElementById('chat-project-field');
+  var sel = document.getElementById('chat-project');
+  if (!field || !sel) return;
+  var projects = availableProjects();
+  field.hidden = projects.length < 2;
+  sel.innerHTML = projects.map(function (p) {
+    var label = p.customer ? p.code + ' — ' + p.customer : p.code;
+    return '<option value="' + escapeHtml(p.code) + '">' + escapeHtml(label) + '</option>';
+  }).join('');
+}
+
 /* "Поступление под отчет" — не отдельная вкладка, а флажок внутри вкладки
    "Отправить приход" (см. index.html, #chat-advance-toggle-wrap): когда он
    включен — без статьи (своя фиксированная статья ставится на сервере), без
@@ -768,6 +826,8 @@ function activateComposeTab(type) {
   document.getElementById('chat-statya-field').hidden = false;
   document.getElementById('chat-contractor-field').hidden = false;
   document.getElementById('chat-attach-wrap').hidden = false;
+  var projectSel = document.getElementById('chat-project');
+  if (projectSel) projectSel.selectedIndex = 0;
   populateStatyaSelect(type);
 }
 
@@ -984,9 +1044,10 @@ function submitAdvanceCard() {
     return;
   }
 
+  var projectSel = document.getElementById('chat-project');
   api('/api/reports', {
     method: 'POST',
-    body: { isAdvance: true, sum: sum, dateIso: dateIso, comment: comment },
+    body: { isAdvance: true, sum: sum, dateIso: dateIso, comment: comment, projectCode: projectSel ? projectSel.value : undefined },
   })
     .then(function () { return loadEmployeeData(); })
     .then(function () {
@@ -1036,11 +1097,15 @@ function submitChatCard() {
     return;
   }
 
+  var reportProjectSel = document.getElementById('chat-project');
   uploadSelectedFiles()
     .then(function (fileIds) {
       return api('/api/reports', {
         method: 'POST',
-        body: { type: activeComposeType, statya: statya, sum: sum, dateIso: dateIso, contractor: contractor, comment: comment, fileIds: fileIds },
+        body: {
+          type: activeComposeType, statya: statya, sum: sum, dateIso: dateIso, contractor: contractor, comment: comment, fileIds: fileIds,
+          projectCode: reportProjectSel ? reportProjectSel.value : undefined,
+        },
       });
     })
     .then(function () { return loadEmployeeData(); })
@@ -1520,6 +1585,7 @@ function renderBuhExportList() {
       '<span class="export-emp-icon"><svg class="icon"><use href="#i-users"/></svg></span>' +
       '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
         (meta ? '<div class="export-emp-meta">' + escapeHtml(meta) + '</div>' : '') +
+        extraProjectsMetaHtml(emp) +
       '</div>' +
       '<div class="export-emp-actions">' +
         '<button class="btn-uo" type="button" onclick="downloadExport(\'' + emp.id + '\')">УО</button>' +
@@ -1558,6 +1624,13 @@ function empEditFormHtml(emp, scope) {
     '<div class="emp-edit-note">Отправленные ранее отчеты сотрудника не изменятся — поменяется только то, куда будут попадать его будущие отчеты.</div>' +
     '<div class="field"><label>Шифр проекта</label><input id="emp-edit-project-' + p + '" type="text" value="' + escapeHtml(emp.projectCode || '') + '"></div>' +
     '<div class="field"><label>Заказчик по проекту</label><input id="emp-edit-customer-' + p + '" type="text" value="' + escapeHtml(emp.projectCustomer || '') + '"></div>' +
+    '<div class="field"><label>Дополнительные проекты</label>' +
+      '<div class="extra-projects-list" id="emp-edit-extra-projects-' + p + '">' +
+        (emp.additionalProjects || []).map(function (ep) { return extraProjectRowHtml(ep.projectCode, ep.projectCustomer); }).join('') +
+      '</div>' +
+      '<button class="text-link" type="button" onclick="addExtraProjectRow(\'emp-edit-extra-projects-' + p + '\')">' +
+        '<svg class="icon icon-sm"><use href="#i-plus"/></svg>Добавить проект</button>' +
+    '</div>' +
     '<div class="field"><label>Юридическое лицо</label>' +
       '<div class="select-wrap"><select id="emp-edit-legal-' + p + '" onchange="onEmpEditLegalChange(\'' + emp.id + '\', \'' + scope + '\')">' +
         legalEntityOptionsHtml(emp.legalEntity) +
@@ -1635,11 +1708,12 @@ function saveEmpEdit(employeeId, scope) {
     window.alert('Изменения не сохранены — перевод в другой проект отменён.');
     return;
   }
+  var additionalProjects = collectExtraProjects('emp-edit-extra-projects-' + p);
   var saveBtn = document.querySelector('#emp-edit-' + p + ' .btn-save-confirm');
   if (saveBtn) saveBtn.disabled = true;
   api('/api/reports/employees/' + employeeId, {
     method: 'PATCH',
-    body: { projectCode: projectCode, projectCustomer: projectCustomer, legalEntity: legalEntity, legalEntityOkpo: legalEntityOkpo, employeeCategory: employeeCategory },
+    body: { projectCode: projectCode, projectCustomer: projectCustomer, legalEntity: legalEntity, legalEntityOkpo: legalEntityOkpo, employeeCategory: employeeCategory, additionalProjects: additionalProjects },
   })
     .then(function () {
       empEditOpenId = null;
@@ -1887,6 +1961,7 @@ function renderRukEmployeeList() {
       '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
         (meta ? '<div class="export-emp-meta">' + escapeHtml(meta) + '</div>' : '') +
         empBalanceMetaHtml(emp) +
+        extraProjectsMetaHtml(emp) +
       '</div>' +
       '<div class="export-emp-actions">' +
         /* См. комментарий в renderBuhExportList — кнопка скрыта, пока форма
@@ -1928,6 +2003,7 @@ function renderBuhEmployeeList() {
       '<div class="export-emp-info"><div class="export-emp-name">' + escapeHtml(emp.fullName || '—') + '</div>' +
         (meta ? '<div class="export-emp-meta">' + escapeHtml(meta) + '</div>' : '') +
         empBalanceMetaHtml(emp) +
+        extraProjectsMetaHtml(emp) +
       '</div>' +
       '<div class="export-emp-actions">' +
         /* См. комментарий в renderBuhExportList — кнопка скрыта, пока форма
@@ -1938,6 +2014,50 @@ function renderBuhEmployeeList() {
     var editForm = isEditing ? empEditFormHtml(emp, 'buh') : '';
     return row + editForm;
   }).join('');
+}
+
+/* ---------- Дополнительные проекты сотрудника (форма регистрации и форма
+   редактирования — используют одни и те же хелперы, просто с разным
+   containerId: 'buh-emp-extra-projects' / 'ruk-emp-extra-projects' для
+   регистрации, 'emp-edit-extra-projects-<scope>-<id>' для редактирования,
+   см. empEditFormHtml). Один сотрудник может работать сразу на нескольких
+   проектах — кроме основного шифра можно добавить любое число
+   дополнительных, и при отправке отчета сотрудник сам выбирает нужный
+   (см. #chat-project-field выше). */
+function extraProjectRowHtml(code, customer) {
+  return '<div class="extra-project-row">' +
+    '<input type="text" class="extra-project-code" placeholder="Шифр проекта" value="' + escapeHtml(code || '') + '">' +
+    '<input type="text" class="extra-project-customer" placeholder="Заказчик (необязательно)" value="' + escapeHtml(customer || '') + '">' +
+    '<button type="button" class="extra-project-remove" onclick="this.parentElement.remove()" aria-label="Убрать проект">' +
+      '<svg class="icon icon-sm"><use href="#i-close"/></svg></button></div>';
+}
+
+function addExtraProjectRow(containerId, code, customer) {
+  var wrap = document.getElementById(containerId);
+  if (!wrap) return;
+  wrap.insertAdjacentHTML('beforeend', extraProjectRowHtml(code, customer));
+}
+
+function collectExtraProjects(containerId) {
+  var wrap = document.getElementById(containerId);
+  if (!wrap) return [];
+  return Array.prototype.slice.call(wrap.querySelectorAll('.extra-project-row')).map(function (row) {
+    return {
+      projectCode: row.querySelector('.extra-project-code').value.trim(),
+      projectCustomer: row.querySelector('.extra-project-customer').value.trim(),
+    };
+  }).filter(function (p) { return p.projectCode; });
+}
+
+/* Короткая строка под именем сотрудника в списках "Выгрузка отчетов" /
+   "Сотрудники" — чтобы было видно, на каких ещё проектах он работает, не
+   открывая форму редактирования. */
+function extraProjectsMetaHtml(emp) {
+  if (!emp.additionalProjects || !emp.additionalProjects.length) return '';
+  var codes = emp.additionalProjects.map(function (p) {
+    return p.projectCustomer ? p.projectCode + ' (' + p.projectCustomer + ')' : p.projectCode;
+  }).join(', ');
+  return '<div class="export-emp-meta">Доп. проекты: ' + escapeHtml(codes) + '</div>';
 }
 
 /* При выборе известного юрлица в форме добавления сотрудника (и руководителя,
@@ -1969,6 +2089,7 @@ function addEmployeeFromForm(prefix, isRuk) {
   var category = document.getElementById(prefix + '-category').value;
   var projectCode = isRuk ? val('project') : '';
   var projectCustomer = val('customer');
+  var additionalProjects = collectExtraProjects(prefix + '-extra-projects');
 
   if (!mail || !fio) { window.alert('Заполните ФИО и почту.'); return; }
   if (!legalEntity) { window.alert('Укажите юридическое лицо.'); return; }
@@ -1982,6 +2103,7 @@ function addEmployeeFromForm(prefix, isRuk) {
       email: mail, fullName: fio, phone: val('phone'), position: val('position'), tabelNumber: val('tabel'),
       projectCode: projectCode, projectCustomer: projectCustomer,
       legalEntity: legalEntity, legalEntityOkpo: legalEntityOkpo, employeeCategory: category,
+      additionalProjects: additionalProjects,
     },
   })
     .then(function (data) {
@@ -1991,6 +2113,8 @@ function addEmployeeFromForm(prefix, isRuk) {
       });
       document.getElementById(prefix + '-legal').value = '';
       document.getElementById(prefix + '-legal-other-wrap').hidden = true;
+      var extraWrap = document.getElementById(prefix + '-extra-projects');
+      if (extraWrap) extraWrap.innerHTML = '';
       window.alert(
         'Сотрудник зарегистрирован.\n\nВременный пароль: ' + data.tempPassword +
         '\n\nСообщите его сотруднику лично (телефон, мессенджер) — после первого входа он должен сменить пароль сам. Этот пароль больше нигде не показывается, сохраните его сейчас, если нужно.'

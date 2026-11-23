@@ -53,6 +53,43 @@ function serializeReport(row, employee) {
 const ADVANCE_STATYA = 'поступление подотчетных средств (ДДС)';
 const ADVANCE_CONTRACTOR = 'Касса компании';
 
+/* ---------- Дополнительные проекты сотрудника ----------
+   Сотрудник может одновременно работать на нескольких проектах — кроме
+   основного шифра (users.project_code) можно привязать любое число
+   дополнительных (таблица employee_projects), и при отправке отчета он сам
+   выбирает, по какому из них отчитывается (см. POST / ниже). */
+function sanitizeAdditionalProjects(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((p) => ({
+      projectCode: String((p && p.projectCode) || '').trim(),
+      projectCustomer: String((p && p.projectCustomer) || '').trim() || null,
+    }))
+    .filter((p) => p.projectCode);
+}
+
+async function getEmployeeProjects(employeeId) {
+  const result = await pool.query(
+    'SELECT project_code, project_customer FROM employee_projects WHERE employee_id = $1 ORDER BY created_at',
+    [employeeId]
+  );
+  return result.rows.map((r) => ({ projectCode: r.project_code, projectCustomer: r.project_customer }));
+}
+
+/* Полная замена списка доп. проектов сотрудника — проще и надежнее, чем
+   вычислять точечный diff добавленных/убранных строк. */
+async function replaceEmployeeProjects(employeeId, list) {
+  const clean = sanitizeAdditionalProjects(list);
+  await pool.query('DELETE FROM employee_projects WHERE employee_id = $1', [employeeId]);
+  for (const p of clean) {
+    await pool.query(
+      'INSERT INTO employee_projects (employee_id, project_code, project_customer) VALUES ($1, $2, $3)',
+      [employeeId, p.projectCode, p.projectCustomer]
+    );
+  }
+  return clean;
+}
+
 /* Дата отчета не может быть в будущем (проверяем и здесь, на сервере, а не
    только в календаре на сайте — защита на случай прямого запроса мимо сайта). */
 function isFutureDate(dateIso) {
@@ -125,7 +162,7 @@ async function notifyBuhOfNewReport({ employeeName, projectCode, legalEntity, ty
 
 /* ---------- Сотрудник: создать отчет ---------- */
 router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
-  let { type, statya, sum, dateIso, contractor, comment, fileIds, isAdvance } = req.body || {};
+  let { type, statya, sum, dateIso, contractor, comment, fileIds, isAdvance, projectCode: requestedProjectCode } = req.body || {};
   isAdvance = !!isAdvance;
   /* "Поступление под отчет" — это всегда приход, без статьи из обычного
      списка и без контрагента (сотрудник выбирает только сумму и дату) —
@@ -149,15 +186,35 @@ router.post('/', requireAuth, requireRole('sotr'), async (req, res) => {
       'SELECT project_code, legal_entity, legal_entity_okpo, project_customer, full_name FROM users WHERE id = $1',
       [req.user.sub]
     );
-    const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
-    /* legal_entity и project_customer "фотографируем" с сотрудника именно в
-       момент отправки отчета (как и project_code) — если бухгалтер потом
+    const primaryProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+    /* legal_entity "фотографируем" с сотрудника именно в момент отправки
+       отчета (как и project_code/project_customer) — если бухгалтер потом
        переведет сотрудника в другой проект или юрлицо, этот уже отправленный
        отчет навсегда останется с тем юрлицом/заказчиком, какие были сейчас. */
     const legalEntity = userResult.rows[0] ? userResult.rows[0].legal_entity : null;
     const legalEntityOkpo = userResult.rows[0] ? userResult.rows[0].legal_entity_okpo : null;
-    const projectCustomer = userResult.rows[0] ? userResult.rows[0].project_customer : null;
+    const primaryProjectCustomer = userResult.rows[0] ? userResult.rows[0].project_customer : null;
     const employeeName = userResult.rows[0] ? userResult.rows[0].full_name : '';
+
+    /* Сотрудник, работающий сразу на нескольких проектах, сам выбирает на
+       фронтенде, по какому из них отчитывается (см. #chat-project в
+       index.html) — но сервер всё равно проверяет, что выбранный шифр
+       действительно привязан к этому сотруднику (основной или один из
+       дополнительных, см. employee_projects), а не передан произвольно. */
+    let projectCode = primaryProjectCode;
+    let projectCustomer = primaryProjectCustomer;
+    const cleanRequestedProjectCode = String(requestedProjectCode || '').trim();
+    if (cleanRequestedProjectCode && cleanRequestedProjectCode !== primaryProjectCode) {
+      const extraResult = await pool.query(
+        'SELECT project_customer FROM employee_projects WHERE employee_id = $1 AND project_code = $2',
+        [req.user.sub, cleanRequestedProjectCode]
+      );
+      if (!extraResult.rows.length) {
+        return res.status(400).json({ error: 'Этот проект не привязан к вашему аккаунту' });
+      }
+      projectCode = cleanRequestedProjectCode;
+      projectCustomer = extraResult.rows[0].project_customer;
+    }
 
     // Свой порядковый номер у каждого сотрудника (№1, №2, №3... независимо от остальных)
     const seqResult = await pool.query(
@@ -272,7 +329,7 @@ router.get('/', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
 router.post('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
   const {
     email, fullName, phone, position, tabelNumber,
-    projectCode, projectCustomer, legalEntity, legalEntityOkpo, employeeCategory,
+    projectCode, projectCustomer, legalEntity, legalEntityOkpo, employeeCategory, additionalProjects,
   } = req.body || {};
   if (!email || !fullName) {
     return res.status(400).json({ error: 'Укажите почту и ФИО' });
@@ -305,11 +362,13 @@ router.post('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, re
         finalProjectCode, projectCustomer || null, legalEntity, legalEntityOkpo || null, category]
     );
     const r = result.rows[0];
+    const savedAdditionalProjects = await replaceEmployeeProjects(r.id, additionalProjects);
     res.status(201).json({
       employee: {
         id: r.id, email: r.email, fullName: r.full_name, projectCode: r.project_code,
         projectCustomer: r.project_customer, legalEntity: r.legal_entity,
         legalEntityOkpo: r.legal_entity_okpo, employeeCategory: r.employee_category,
+        additionalProjects: savedAdditionalProjects,
       },
       tempPassword,
     });
@@ -341,7 +400,11 @@ const EMPLOYEE_LIST_COLUMNS = `
   COALESCE((
     SELECT SUM(r.sum) FROM reports r
     WHERE r.employee_id = u.id AND r.type = 'expense' AND r.status = 'approved'
-  ), 0) AS spent
+  ), 0) AS spent,
+  COALESCE((
+    SELECT json_agg(json_build_object('projectCode', ep.project_code, 'projectCustomer', ep.project_customer) ORDER BY ep.created_at)
+    FROM employee_projects ep WHERE ep.employee_id = u.id
+  ), '[]'::json) AS additional_projects
 `;
 
 router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
@@ -354,8 +417,17 @@ router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res
     } else {
       const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
       const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+      /* Сотрудник, чей ОСНОВНОЙ проект — не этот, но у которого этот проект
+         добавлен как дополнительный (работает сразу на нескольких проектах),
+         тоже должен быть виден этому бухгалтеру — иначе он не сможет
+         проверить его отчеты по этому проекту в "Выгрузке отчетов". */
       result = await pool.query(
-        `SELECT ${EMPLOYEE_LIST_COLUMNS} FROM users u WHERE u.role = 'sotr' AND u.project_code = $1 ORDER BY u.full_name`,
+        `SELECT DISTINCT ${EMPLOYEE_LIST_COLUMNS} FROM users u
+         WHERE u.role = 'sotr' AND (
+           u.project_code = $1
+           OR EXISTS (SELECT 1 FROM employee_projects ep WHERE ep.employee_id = u.id AND ep.project_code = $1)
+         )
+         ORDER BY u.full_name`,
         [projectCode]
       );
     }
@@ -368,6 +440,7 @@ router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res
         legalEntityOkpo: r.legal_entity_okpo,
         employeeCategory: r.employee_category,
         projectCustomer: r.project_customer,
+        additionalProjects: r.additional_projects || [],
         advanceAmount: Number(r.advance_amount),
         spent: Number(r.spent),
         remain: Number(r.advance_amount) - Number(r.spent),
@@ -394,7 +467,7 @@ router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res
    завести в разделе "Бухгалтеры" (это делает руководитель), иначе отчеты
    сотрудника дальше просто не будут попадать ни к какому бухгалтеру. */
 router.patch('/employees/:id', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
-  const { projectCode, legalEntity, legalEntityOkpo, employeeCategory, projectCustomer } = req.body || {};
+  const { projectCode, legalEntity, legalEntityOkpo, employeeCategory, projectCustomer, additionalProjects } = req.body || {};
   try {
     if (req.user.role === 'buh') {
       const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
@@ -420,11 +493,18 @@ router.patch('/employees/:id', requireAuth, requireRole('buh', 'ruk'), async (re
       [projectCode || null, legalEntity || null, legalEntityOkpo || null, projectCustomer || null, category, req.params.id]
     );
     const r = result.rows[0];
+    /* additionalProjects приходит только тогда, когда форма редактирования
+       реально показывала этот блок (см. empEditFormHtml) — если поле не
+       прислали вовсе (undefined), список доп. проектов не трогаем. */
+    const savedAdditionalProjects = additionalProjects === undefined
+      ? await getEmployeeProjects(r.id)
+      : await replaceEmployeeProjects(r.id, additionalProjects);
     res.json({
       employee: {
         id: r.id, fullName: r.full_name, projectCode: r.project_code,
         legalEntity: r.legal_entity, legalEntityOkpo: r.legal_entity_okpo,
         employeeCategory: r.employee_category, projectCustomer: r.project_customer,
+        additionalProjects: savedAdditionalProjects,
       },
     });
   } catch (e) {

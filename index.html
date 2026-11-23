@@ -177,6 +177,10 @@
             <svg class="icon icon-sm"><use href="#i-install"/></svg>
             Установить приложение
           </button>
+          <button class="text-link" type="button" onclick="openPasswordChangeModal(false)">
+            <svg class="icon icon-sm"><use href="#i-pencil"/></svg>
+            Сменить пароль
+          </button>
           <button class="text-link logout-link" type="button" onclick="doLogout()">
             <svg class="icon icon-sm"><use href="#i-logout"/></svg>
             Выйти
@@ -273,6 +277,13 @@
             </div>
 
             <div class="chat-compose">
+              <div class="field" id="chat-project-field" hidden>
+                <label for="chat-project">Проект<span class="required-mark">*</span></label>
+                <div class="select-wrap">
+                  <select id="chat-project"></select>
+                  <svg class="icon icon-sm select-chevron"><use href="#i-chevron"/></svg>
+                </div>
+              </div>
               <div class="consent" id="chat-advance-toggle-wrap" hidden>
                 <input id="chat-advance-toggle" type="checkbox" onchange="toggleAdvanceMode()">
                 <label for="chat-advance-toggle">Это поступление под отчет (без статьи и чека)</label>
@@ -400,6 +411,10 @@
           <button class="text-link install-app-btn" type="button" onclick="installApp()" hidden>
             <svg class="icon icon-sm"><use href="#i-install"/></svg>
             Установить приложение
+          </button>
+          <button class="text-link" type="button" onclick="openPasswordChangeModal(false)">
+            <svg class="icon icon-sm"><use href="#i-pencil"/></svg>
+            Сменить пароль
           </button>
           <button class="text-link logout-link" type="button" onclick="doLogout()">
             <svg class="icon icon-sm"><use href="#i-logout"/></svg>
@@ -545,6 +560,13 @@
               <input id="buh-emp-customer" type="text" placeholder="Например, ПАО «Роснефть»">
             </div>
             <div class="field">
+              <label>Дополнительные проекты</label>
+              <div class="extra-projects-list" id="buh-emp-extra-projects"></div>
+              <button class="text-link" type="button" onclick="addExtraProjectRow('buh-emp-extra-projects')">
+                <svg class="icon icon-sm"><use href="#i-plus"/></svg>Добавить проект
+              </button>
+            </div>
+            <div class="field">
               <label for="buh-emp-legal">Юридическое лицо<span class="required-mark">*</span></label>
               <div class="select-wrap">
                 <select id="buh-emp-legal" onchange="onAddEmpLegalChange('buh-emp')">
@@ -648,6 +670,10 @@
             <svg class="icon icon-sm"><use href="#i-install"/></svg>
             Установить приложение
           </button>
+          <button class="text-link" type="button" onclick="openPasswordChangeModal(false)">
+            <svg class="icon icon-sm"><use href="#i-pencil"/></svg>
+            Сменить пароль
+          </button>
           <button class="text-link logout-link" type="button" onclick="doLogout()">
             <svg class="icon icon-sm"><use href="#i-logout"/></svg>
             Выйти
@@ -733,6 +759,13 @@
             <div class="field">
               <label for="ruk-emp-customer">Заказчик по проекту</label>
               <input id="ruk-emp-customer" type="text" placeholder="Например, ПАО «Роснефть»">
+            </div>
+            <div class="field">
+              <label>Дополнительные проекты</label>
+              <div class="extra-projects-list" id="ruk-emp-extra-projects"></div>
+              <button class="text-link" type="button" onclick="addExtraProjectRow('ruk-emp-extra-projects')">
+                <svg class="icon icon-sm"><use href="#i-plus"/></svg>Добавить проект
+              </button>
             </div>
             <div class="field">
               <label for="ruk-emp-legal">Юридическое лицо<span class="required-mark">*</span></label>
@@ -843,10 +876,10 @@
   <div id="change-password-overlay" class="modal-overlay" hidden>
     <div class="modal-card">
       <div class="confirm-modal-body">
-        <h2>Задайте свой пароль</h2>
-        <p>Пароль, который вам передали, — временный. Задайте свой собственный, чтобы продолжить.</p>
+        <h2 id="cp-title">Задайте свой пароль</h2>
+        <p id="cp-desc">Пароль, который вам передали, — временный. Задайте свой собственный, чтобы продолжить.</p>
         <div class="field">
-          <label for="cp-current">Временный пароль</label>
+          <label for="cp-current" id="cp-current-label">Временный пароль</label>
           <div class="pass-wrap">
             <input id="cp-current" type="password" placeholder="Пароль, который вам передали">
             <button class="pass-toggle" type="button" onclick="togglePass('cp-current', this)" aria-label="Показать пароль">
@@ -874,7 +907,7 @@
         </div>
         <div id="cp-error" class="field-error" hidden></div>
         <div class="confirm-modal-actions">
-          <button class="btn-ghost-cancel" type="button" onclick="cancelPasswordChange()">Выйти</button>
+          <button class="btn-ghost-cancel" type="button" id="cp-cancel-btn" onclick="cancelPasswordChange()">Выйти</button>
           <button class="btn-save-confirm" type="button" id="cp-submit-btn" onclick="submitPasswordChange()">Сохранить пароль</button>
         </div>
       </div>
