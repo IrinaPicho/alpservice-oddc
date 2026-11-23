@@ -43,6 +43,15 @@ router.post('/login', async (req, res) => {
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return genericError();
 
+    /* is_active = false — это "удалённый" сотрудник, у которого уже были
+       отчеты (см. DELETE /employees/:id в routes-reports.js), поэтому его
+       данные в базе остались, но входить он больше не должен. Тут можно
+       прямо сказать, в чём дело — это не утечка информации о чужом аккаунте,
+       пароль он уже и так подобрал верно. */
+    if (user.is_active === false) {
+      return res.status(403).json({ error: 'Доступ закрыт. Обратитесь к руководителю или бухгалтеру.' });
+    }
+
     const token = issueToken({ id: user.id, role: user.role, email: user.email });
     setAuthCookie(res, token);
     const additionalProjects = await getAdditionalProjects(user.id);

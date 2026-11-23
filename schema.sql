@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS users (
   employee_category text NOT NULL DEFAULT 'aup' CHECK (employee_category IN ('itr', 'aup')), -- категория сотрудника: 'itr' или 'aup' — определяет, какой список статей расходов/приходов ему показывать
   must_change_password boolean NOT NULL DEFAULT false, -- true после создания руководителем, пока бухгалтер не задал свой пароль
   advance_amount  numeric(12,2) NOT NULL DEFAULT 0, -- сколько выдано на руки сотруднику (вводит сам), для остатка на дашборде
+  is_active       boolean NOT NULL DEFAULT true, -- false = "удалённый" сотрудник, у которого уже были отчеты (см. DELETE /employees/:id
+                                                  -- в routes-reports.js) — реально не удаляем, иначе вместе с ним по ON DELETE CASCADE
+                                                  -- пропали бы и все его отчеты; просто скрываем из списков и закрываем вход
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 

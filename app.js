@@ -86,7 +86,13 @@ function attemptLogin() {
       if (activeLoginRole === 'buh') return enterBuhWorkspace(name);
       return enterRukWorkspace(name);
     })
-    .catch(function () { errorEl.hidden = false; })
+    .catch(function (e) {
+      /* Показываем конкретный текст с сервера (например, "Доступ закрыт..."
+         у удалённого/деактивированного сотрудника), а не всегда одну и ту же
+         статичную надпись "Неверная почта или пароль". */
+      errorEl.textContent = (e && e.message) || 'Неверная почта или пароль';
+      errorEl.hidden = false;
+    })
     .then(function () { btn.disabled = false; });
 }
 
@@ -1593,6 +1599,30 @@ function resetEmpPassword(id) {
     .catch(function (e) { window.alert(e.message || 'Не удалось сбросить пароль'); });
 }
 
+/* Удаление сотрудника — если у него уже есть отправленные отчеты, сервер
+   НЕ удаляет его насовсем (иначе вместе с ним пропали бы и все его отчеты —
+   они ссылаются на employee_id, см. schema.sql), а просто скрывает из
+   списков и закрывает вход; если отчетов нет вообще (завели по ошибке/для
+   теста) — удаляется окончательно. Какой из двух вариантов сработал, видно
+   из ответа сервера (data.mode), заранее мы этого не знаем. */
+function deleteEmployee(id) {
+  var emp = BUH_EMPLOYEES.concat(RUK_EMPLOYEES).find(function (e) { return e.id === id; });
+  var name = emp ? emp.fullName : '';
+  if (!window.confirm(
+    'Удалить сотрудника' + (name ? ' ' + name : '') + '?\n\n' +
+    'Если у него уже есть отправленные отчеты — они никуда не денутся, сотрудник просто будет скрыт из списка и не сможет войти. ' +
+    'Если отчетов ещё не было — удалится полностью.'
+  )) return;
+  api('/api/reports/employees/' + id, { method: 'DELETE' })
+    .then(function (data) {
+      window.alert(data.mode === 'deactivated'
+        ? 'У сотрудника уже были отчеты, поэтому его не стали удалять совсем — он скрыт из списка и не сможет войти, а его отчеты остались как были.'
+        : 'Сотрудник удалён.');
+      return reloadEmployeesForCurrentRole();
+    })
+    .catch(function (e) { window.alert(e.message || 'Не удалось удалить сотрудника'); });
+}
+
 var empEditOpenId = null; // id сотрудника, у которого сейчас открыта форма "Проект/юрлицо"
 
 function renderBuhExportList() {
@@ -1622,6 +1652,7 @@ function renderBuhExportList() {
            "Отмена"/"Сохранить" внутри самой формы. */
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="resetEmpPassword(\'' + emp.id + '\')">Сбросить пароль</button>') +
+        (isEditing ? '' : '<button class="ruk-delete-btn" type="button" onclick="deleteEmployee(\'' + emp.id + '\')" aria-label="Удалить сотрудника"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>') +
       '</div></div>';
     var editForm = isEditing ? empEditFormHtml(emp, 'exp') : '';
     return row + editForm;
@@ -2043,6 +2074,7 @@ function renderRukEmployeeList() {
            несохранённые изменения. */
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="resetEmpPassword(\'' + emp.id + '\')">Сбросить пароль</button>') +
+        (isEditing ? '' : '<button class="ruk-delete-btn" type="button" onclick="deleteEmployee(\'' + emp.id + '\')" aria-label="Удалить сотрудника"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>') +
       '</div></div>';
     var editForm = isEditing ? empEditFormHtml(emp, 'ruk') : '';
     return row + editForm;
@@ -2086,6 +2118,7 @@ function renderBuhEmployeeList() {
            несохранённые изменения. */
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="resetEmpPassword(\'' + emp.id + '\')">Сбросить пароль</button>') +
+        (isEditing ? '' : '<button class="ruk-delete-btn" type="button" onclick="deleteEmployee(\'' + emp.id + '\')" aria-label="Удалить сотрудника"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>') +
       '</div></div>';
     var editForm = isEditing ? empEditFormHtml(emp, 'buh') : '';
     return row + editForm;

@@ -404,7 +404,7 @@ router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res
     let result;
     if (req.user.role === 'ruk') {
       result = await pool.query(
-        `SELECT ${EMPLOYEE_LIST_COLUMNS} FROM users u WHERE u.role = 'sotr' ORDER BY u.full_name`
+        `SELECT ${EMPLOYEE_LIST_COLUMNS} FROM users u WHERE u.role = 'sotr' AND u.is_active = true ORDER BY u.full_name`
       );
     } else {
       const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
@@ -418,7 +418,7 @@ router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res
       const myProjectCodes = await getAllProjectCodes(req.user.sub, primaryProjectCode);
       result = await pool.query(
         `SELECT DISTINCT ${EMPLOYEE_LIST_COLUMNS} FROM users u
-         WHERE u.role = 'sotr' AND (
+         WHERE u.role = 'sotr' AND u.is_active = true AND (
            u.project_code = ANY($1::text[])
            OR EXISTS (SELECT 1 FROM employee_projects ep WHERE ep.employee_id = u.id AND ep.project_code = ANY($1::text[]))
          )
@@ -543,6 +543,45 @@ router.post('/employees/:id/reset-password', requireAuth, requireRole('buh', 'ru
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Не удалось сбросить пароль' });
+  }
+});
+
+/* ---------- Удалить сотрудника ----------
+   reports.employee_id ссылается на users(id) с ON DELETE CASCADE (см.
+   schema.sql) — значит, если сотрудника удалить по-настоящему, вместе с ним
+   безвозвратно пропадут и ВСЕ его отправленные отчеты (а значит и прошлые
+   выгрузки УО/АО-1 перестанут собираться). Это нормально только для
+   сотрудника, у которого отчетов ещё вообще не было (завели по ошибке или
+   для теста) — тогда удаляем насовсем. Если отчеты уже есть — настоящее
+   удаление не делаем, а помечаем is_active = false: сотрудник пропадает из
+   списков и не может больше войти, но все его отчеты и выгрузки остаются
+   как были. Права доступа те же, что и у PATCH/reset-password выше. */
+router.delete('/employees/:id', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
+  try {
+    if (req.user.role === 'buh') {
+      const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
+      const myPrimaryProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+      const myProjectCodes = await getAllProjectCodes(req.user.sub, myPrimaryProjectCode);
+      const existing = await pool.query(
+        "SELECT id FROM users WHERE id = $1 AND role = 'sotr' AND project_code = ANY($2::text[])",
+        [req.params.id, myProjectCodes]
+      );
+      if (!existing.rows[0]) return res.status(404).json({ error: 'Сотрудник не найден в вашем проекте' });
+    } else {
+      const existing = await pool.query("SELECT id FROM users WHERE id = $1 AND role = 'sotr'", [req.params.id]);
+      if (!existing.rows[0]) return res.status(404).json({ error: 'Сотрудник не найден' });
+    }
+
+    const reportsCount = await pool.query('SELECT COUNT(*)::int AS c FROM reports WHERE employee_id = $1', [req.params.id]);
+    if (reportsCount.rows[0].c > 0) {
+      await pool.query('UPDATE users SET is_active = false WHERE id = $1', [req.params.id]);
+      return res.json({ ok: true, mode: 'deactivated' });
+    }
+    await pool.query("DELETE FROM users WHERE id = $1 AND role = 'sotr'", [req.params.id]);
+    res.json({ ok: true, mode: 'deleted' });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Не удалось удалить сотрудника' });
   }
 });
 
