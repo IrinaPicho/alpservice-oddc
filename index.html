@@ -556,6 +556,10 @@
               <input id="buh-emp-tabel" type="text" placeholder="Например, 0042">
             </div>
             <div class="field">
+              <label for="buh-emp-project">Шифр проекта<span class="required-mark">*</span></label>
+              <input id="buh-emp-project" type="text" placeholder="Например, 30-155">
+            </div>
+            <div class="field">
               <label for="buh-emp-customer">Заказчик по проекту</label>
               <input id="buh-emp-customer" type="text" placeholder="Например, ПАО «Роснефть»">
             </div>
@@ -713,6 +717,13 @@
               <div class="field">
                 <label for="ruk-new-code">Шифр проекта</label>
                 <input id="ruk-new-code" type="text" placeholder="Например, 30-155" oninput="checkRukForm()">
+              </div>
+              <div class="field">
+                <label>Дополнительные проекты</label>
+                <div class="extra-projects-list" id="ruk-new-extra-projects"></div>
+                <button class="text-link" type="button" onclick="addExtraProjectRow('ruk-new-extra-projects')">
+                  <svg class="icon icon-sm"><use href="#i-plus"/></svg>Добавить проект
+                </button>
               </div>
             </div>
             <div id="ruk-form-error" class="field-error" hidden>Такая почта уже добавлена</div>

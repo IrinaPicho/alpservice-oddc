@@ -2,19 +2,14 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { pool } = require('./db');
 const { issueToken, setAuthCookie, clearAuthCookie, requireAuth } = require('./jwt');
+const { getUserProjects: getAdditionalProjects } = require('./project-assignments');
 
 const router = express.Router();
 
-/* Дополнительные проекты (employee_projects) — только у сотрудника имеет
-   смысл, но безопасно вызвать и для бухгалтера/руководителя (просто вернёт
-   пустой список, строк для них там не бывает). */
-async function getAdditionalProjects(userId) {
-  const result = await pool.query(
-    'SELECT project_code, project_customer FROM employee_projects WHERE employee_id = $1 ORDER BY created_at',
-    [userId]
-  );
-  return result.rows.map((r) => ({ projectCode: r.project_code, projectCustomer: r.project_customer }));
-}
+/* Дополнительные проекты (employee_projects) — раньше имело смысл только у
+   сотрудника, теперь бухгалтер тоже может быть привязан к нескольким
+   проектам (см. project-assignments.js), у руководителя как и раньше строк
+   там не бывает, просто вернётся пустой список. */
 
 /* ---------- Самостоятельной регистрации больше нет ----------
    Раньше сотрудник мог завести себе аккаунт сам, с главного экрана входа.

@@ -105,6 +105,12 @@ function enterBuhWorkspace(name) {
   document.getElementById('buh-name-side').textContent = name;
   document.getElementById('auth-wrap').hidden = true;
   document.getElementById('workspace-buh').hidden = false;
+  /* Поле "Шифр проекта" в форме регистрации сотрудника у бухгалтера —
+     редактируемое (бухгалтер добавляет СОТРУДНИКА, а не себя, и может
+     указать любой шифр), просто по умолчанию подставляем шифр проекта
+     самого бухгалтера как самый частый случай — так меньше печатать. */
+  var buhProjectField = document.getElementById('buh-emp-project');
+  if (buhProjectField) buhProjectField.value = (CURRENT_USER && CURRENT_USER.projectCode) || '';
   buhFilter = 'all';
   document.querySelectorAll('#view-buh-all .tab').forEach(function (el, idx) {
     el.classList.toggle('active', idx === 0);
@@ -1831,6 +1837,48 @@ function renderRukStats() {
   document.getElementById('ruk-stat-projects').textContent = Object.keys(codes).length;
 }
 
+/* Открытая форма редактирования доп. проектов бухгалтера (id или null) —
+   та же идея, что empEditOpenId у сотрудников, см. toggleEmpEdit. */
+var accEditOpenId = null;
+
+function toggleAccEdit(id) {
+  accEditOpenId = accEditOpenId === id ? null : id;
+  renderRukList();
+}
+
+/* Меняем бухгалтеру только дополнительные проекты — основной шифр и почту
+   здесь не трогаем (см. комментарий у PATCH /api/accountants/:id). */
+function accEditFormHtml(acc) {
+  return '<div class="emp-edit-form" id="acc-edit-' + acc.id + '">' +
+    '<div class="field"><label>Дополнительные проекты</label>' +
+      '<div class="extra-projects-list" id="acc-edit-extra-projects-' + acc.id + '">' +
+        (acc.additionalProjects || []).map(function (ep) { return extraProjectRowHtml(ep.projectCode, ep.projectCustomer); }).join('') +
+      '</div>' +
+      '<button class="text-link" type="button" onclick="addExtraProjectRow(\'acc-edit-extra-projects-' + acc.id + '\')">' +
+        '<svg class="icon icon-sm"><use href="#i-plus"/></svg>Добавить проект</button>' +
+    '</div>' +
+    '<div class="emp-edit-actions">' +
+      '<button class="btn-ghost-cancel" type="button" onclick="toggleAccEdit(\'' + acc.id + '\')">Отмена</button>' +
+      '<button class="btn-save-confirm" type="button" onclick="saveAccEdit(\'' + acc.id + '\')">Сохранить</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function saveAccEdit(id) {
+  var additionalProjects = collectExtraProjects('acc-edit-extra-projects-' + id);
+  var saveBtn = document.querySelector('#acc-edit-' + id + ' .btn-save-confirm');
+  if (saveBtn) saveBtn.disabled = true;
+  api('/api/accountants/' + id, { method: 'PATCH', body: { additionalProjects: additionalProjects } })
+    .then(function () {
+      accEditOpenId = null;
+      return loadRukData();
+    })
+    .catch(function (e) {
+      window.alert(e.message || 'Не удалось сохранить проекты');
+      if (saveBtn) saveBtn.disabled = false;
+    });
+}
+
 function renderRukList() {
   var wrap = document.getElementById('ruk-list');
   if (!ACCOUNTANTS.length) {
@@ -1838,16 +1886,20 @@ function renderRukList() {
     return;
   }
   wrap.innerHTML = ACCOUNTANTS.map(function (a) {
-    return '<div class="ruk-row">' +
+    var isEditing = accEditOpenId === a.id;
+    var row = '<div class="ruk-row">' +
       '<span class="cat-icon-chip"><svg class="icon"><use href="#i-users"/></svg></span>' +
       '<div class="recent-info">' +
         '<div class="recent-title">' + escapeHtml(a.email) + '</div>' +
         '<div class="recent-meta">Проект: ' + escapeHtml(a.projectCode || '—') + '</div>' +
+        extraProjectsMetaHtml(a) +
       '</div>' +
+      (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleAccEdit(\'' + a.id + '\')">Доп. проекты</button>') +
       '<button class="ruk-delete-btn" type="button" onclick="deleteAccountant(\'' + a.id + '\')" aria-label="Удалить бухгалтера">' +
         '<svg class="icon icon-sm"><use href="#i-close"/></svg>' +
       '</button>' +
     '</div>';
+    return row + (isEditing ? accEditFormHtml(a) : '');
   }).join('');
 }
 
@@ -1871,13 +1923,16 @@ function addAccountantFromForm() {
   var codeEl = document.getElementById('ruk-new-code');
   var mail = mailEl.value.trim().toLowerCase();
   var code = codeEl.value.trim();
+  var additionalProjects = collectExtraProjects('ruk-new-extra-projects');
   if (!mail || !code) return;
   var btn = document.getElementById('ruk-add-btn');
   btn.disabled = true;
-  api('/api/accountants', { method: 'POST', body: { email: mail, projectCode: code } })
+  api('/api/accountants', { method: 'POST', body: { email: mail, projectCode: code, additionalProjects: additionalProjects } })
     .then(function (data) {
       mailEl.value = '';
       codeEl.value = '';
+      var extraWrap = document.getElementById('ruk-new-extra-projects');
+      if (extraWrap) extraWrap.innerHTML = '';
       document.getElementById('ruk-form-error').hidden = true;
       window.alert(
         'Бухгалтер добавлен.\n\nВременный пароль: ' + data.tempPassword +
@@ -2087,13 +2142,13 @@ function addEmployeeFromForm(prefix, isRuk) {
   var legalEntity = legalSel === '__other__' ? val('legal-other') : legalSel;
   var legalEntityOkpo = val('okpo');
   var category = document.getElementById(prefix + '-category').value;
-  var projectCode = isRuk ? val('project') : '';
+  var projectCode = val('project');
   var projectCustomer = val('customer');
   var additionalProjects = collectExtraProjects(prefix + '-extra-projects');
 
   if (!mail || !fio) { window.alert('Заполните ФИО и почту.'); return; }
   if (!legalEntity) { window.alert('Укажите юридическое лицо.'); return; }
-  if (isRuk && !projectCode) { window.alert('Укажите шифр проекта.'); return; }
+  if (!projectCode) { window.alert('Укажите шифр проекта.'); return; }
 
   var btn = document.getElementById(prefix + '-add-btn');
   btn.disabled = true;
@@ -2111,6 +2166,14 @@ function addEmployeeFromForm(prefix, isRuk) {
         var el = document.getElementById(prefix + '-' + id);
         if (el) el.value = '';
       });
+      /* Поле "Шифр проекта" у бухгалтера редактируемое, но после регистрации
+         сотрудника удобнее снова подставить шифр самого бухгалтера как
+         значение по умолчанию для следующего — общий сброс выше его тоже
+         очищает, возвращаем значение обратно. */
+      if (!isRuk) {
+        var buhProjectField = document.getElementById(prefix + '-project');
+        if (buhProjectField) buhProjectField.value = (CURRENT_USER && CURRENT_USER.projectCode) || '';
+      }
       document.getElementById(prefix + '-legal').value = '';
       document.getElementById(prefix + '-legal-other-wrap').hidden = true;
       var extraWrap = document.getElementById(prefix + '-extra-projects');

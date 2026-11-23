@@ -6,6 +6,12 @@ const { pool } = require('./db');
 const { requireAuth, requireRole } = require('./jwt');
 const { buildAo1Workbook, fixRowAddressMismatches } = require('./ao1');
 const { sendMail } = require('./mail');
+const {
+  sanitizeAdditionalProjects,
+  getUserProjects: getEmployeeProjects,
+  replaceUserProjects: replaceEmployeeProjects,
+  getAllProjectCodes,
+} = require('./project-assignments');
 
 const router = express.Router();
 
@@ -53,42 +59,9 @@ function serializeReport(row, employee) {
 const ADVANCE_STATYA = 'поступление подотчетных средств (ДДС)';
 const ADVANCE_CONTRACTOR = 'Касса компании';
 
-/* ---------- Дополнительные проекты сотрудника ----------
-   Сотрудник может одновременно работать на нескольких проектах — кроме
-   основного шифра (users.project_code) можно привязать любое число
-   дополнительных (таблица employee_projects), и при отправке отчета он сам
-   выбирает, по какому из них отчитывается (см. POST / ниже). */
-function sanitizeAdditionalProjects(list) {
-  if (!Array.isArray(list)) return [];
-  return list
-    .map((p) => ({
-      projectCode: String((p && p.projectCode) || '').trim(),
-      projectCustomer: String((p && p.projectCustomer) || '').trim() || null,
-    }))
-    .filter((p) => p.projectCode);
-}
-
-async function getEmployeeProjects(employeeId) {
-  const result = await pool.query(
-    'SELECT project_code, project_customer FROM employee_projects WHERE employee_id = $1 ORDER BY created_at',
-    [employeeId]
-  );
-  return result.rows.map((r) => ({ projectCode: r.project_code, projectCustomer: r.project_customer }));
-}
-
-/* Полная замена списка доп. проектов сотрудника — проще и надежнее, чем
-   вычислять точечный diff добавленных/убранных строк. */
-async function replaceEmployeeProjects(employeeId, list) {
-  const clean = sanitizeAdditionalProjects(list);
-  await pool.query('DELETE FROM employee_projects WHERE employee_id = $1', [employeeId]);
-  for (const p of clean) {
-    await pool.query(
-      'INSERT INTO employee_projects (employee_id, project_code, project_customer) VALUES ($1, $2, $3)',
-      [employeeId, p.projectCode, p.projectCustomer]
-    );
-  }
-  return clean;
-}
+/* Дополнительные проекты (сотрудника и бухгалтера) — sanitizeAdditionalProjects/
+   getEmployeeProjects/replaceEmployeeProjects/getAllProjectCodes теперь общие,
+   см. project-assignments.js (там же подробный комментарий). */
 
 /* Дата отчета не может быть в будущем (проверяем и здесь, на сервере, а не
    только в календаре на сайте — защита на случай прямого запроса мимо сайта). */
@@ -122,8 +95,14 @@ const LEGAL_ENTITY_EXTRA_RECIPIENTS = [
    не произойдет, отчет при этом всё равно сохранится как обычно. */
 async function notifyBuhOfNewReport({ employeeName, projectCode, legalEntity, type, statya, sum, dateIso, contractor, comment, reportNo, isAdvance }) {
   try {
+    /* Бухгалтер теперь тоже может быть привязан к нескольким проектам —
+       письмо должно уйти ему, даже если этот projectCode не основной, а один
+       из дополнительных (см. employee_projects / getAllProjectCodes). */
     const buhResult = await pool.query(
-      "SELECT email FROM users WHERE role = 'buh' AND project_code = $1",
+      `SELECT email FROM users u WHERE u.role = 'buh' AND (
+         u.project_code = $1
+         OR EXISTS (SELECT 1 FROM employee_projects ep WHERE ep.employee_id = u.id AND ep.project_code = $1)
+       )`,
       [projectCode]
     );
     let emails = buhResult.rows.map((r) => r.email).filter(Boolean);
@@ -295,9 +274,10 @@ router.get('/', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
 
     if (req.user.role === 'buh') {
       const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
-      const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
-      params.push(projectCode);
-      query += ` AND r.project_code = $${params.length}`;
+      const primaryProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+      const myProjectCodes = await getAllProjectCodes(req.user.sub, primaryProjectCode);
+      params.push(myProjectCodes);
+      query += ` AND r.project_code = ANY($${params.length}::text[])`;
     }
     if (status && status !== 'all') {
       params.push(status);
@@ -319,10 +299,12 @@ router.get('/', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
 /* ---------- Регистрация сотрудника (кабинет руководителя или бухгалтера) ----------
    Раньше сотрудник мог зарегистрироваться сам, с главного экрана входа —
    теперь эту возможность убрали (см. routes-auth.js POST /register), и
-   завести нового сотрудника может только руководитель (любой проект) или
-   бухгалтер (только в свой собственный проект — шифр проекта в этом случае
-   подставляется автоматически, даже если в запросе прислали другой, чтобы
-   бухгалтер не мог "завести" сотрудника в чужой проект).
+   завести нового сотрудника может только руководитель или бухгалтер — шифр
+   проекта в форме редактируемый у обоих (по умолчанию у бухгалтера
+   подставляется его собственный, но он может указать и любой другой — если
+   это чужой проект, сотрудник просто не будет виден в кабинете ЭТОГО
+   бухгалтера, пока тот же шифр не появится у него как основной или
+   дополнительный проект, см. getAllProjectCodes).
    Пароль, как и у бухгалтеров (см. routes-accountants.js), — временный,
    показывается один раз в ответе на этот запрос, дальше сотрудник обязан
    сменить его сам при первом входе. */
@@ -340,11 +322,21 @@ router.post('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, re
   const category = employeeCategory === 'itr' ? 'itr' : 'aup';
   const normalizedEmail = String(email).trim().toLowerCase();
   try {
+    /* Раньше бухгалтер не мог указать шифр проекта вообще — сервер всегда
+       подставлял его собственный, потому что считалось, что бухгалтер
+       работает только в своём проекте. По просьбе Ирины это убрали: шифр
+       проекта в форме регистрации теперь редактируемый и у бухгалтера тоже
+       (поле просто по умолчанию предзаполнено его собственным шифром) —
+       сервер использует именно то, что прислали, и только если поле вдруг
+       пустое, подставляет свой шифр как запасной вариант. Если бухгалтер
+       укажет чужой проект — сотрудник, как и при переносе в разделе
+       "Проект/юрлицо", перестанет отображаться в его кабинете (см.
+       GET /employees ниже и комментарий в PATCH /employees/:id). */
     let finalProjectCode = projectCode || null;
-    if (req.user.role === 'buh') {
+    if (req.user.role === 'buh' && !finalProjectCode) {
       const myResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
       finalProjectCode = myResult.rows[0] ? myResult.rows[0].project_code : null;
-    } else if (!finalProjectCode) {
+    } else if (req.user.role !== 'buh' && !finalProjectCode) {
       return res.status(400).json({ error: 'Укажите шифр проекта' });
     }
     const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
@@ -416,19 +408,22 @@ router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res
       );
     } else {
       const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
-      const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
-      /* Сотрудник, чей ОСНОВНОЙ проект — не этот, но у которого этот проект
-         добавлен как дополнительный (работает сразу на нескольких проектах),
-         тоже должен быть виден этому бухгалтеру — иначе он не сможет
-         проверить его отчеты по этому проекту в "Выгрузке отчетов". */
+      const primaryProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+      /* Бухгалтер сам тоже может быть привязан к нескольким проектам —
+         берём весь его набор шифров (основной + дополнительные), а не только
+         один. Сотрудник, чей ОСНОВНОЙ проект — не этот, но у которого этот
+         проект добавлен как дополнительный (работает сразу на нескольких
+         проектах), тоже должен быть виден этому бухгалтеру — иначе он не
+         сможет проверить его отчеты по этому проекту в "Выгрузке отчетов". */
+      const myProjectCodes = await getAllProjectCodes(req.user.sub, primaryProjectCode);
       result = await pool.query(
         `SELECT DISTINCT ${EMPLOYEE_LIST_COLUMNS} FROM users u
          WHERE u.role = 'sotr' AND (
-           u.project_code = $1
-           OR EXISTS (SELECT 1 FROM employee_projects ep WHERE ep.employee_id = u.id AND ep.project_code = $1)
+           u.project_code = ANY($1::text[])
+           OR EXISTS (SELECT 1 FROM employee_projects ep WHERE ep.employee_id = u.id AND ep.project_code = ANY($1::text[]))
          )
          ORDER BY u.full_name`,
-        [projectCode]
+        [myProjectCodes]
       );
     }
     res.json({
@@ -471,10 +466,11 @@ router.patch('/employees/:id', requireAuth, requireRole('buh', 'ruk'), async (re
   try {
     if (req.user.role === 'buh') {
       const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
-      const myProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+      const myPrimaryProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+      const myProjectCodes = await getAllProjectCodes(req.user.sub, myPrimaryProjectCode);
       const existing = await pool.query(
-        "SELECT id FROM users WHERE id = $1 AND role = 'sotr' AND project_code = $2",
-        [req.params.id, myProjectCode]
+        "SELECT id FROM users WHERE id = $1 AND role = 'sotr' AND project_code = ANY($2::text[])",
+        [req.params.id, myProjectCodes]
       );
       if (!existing.rows[0]) {
         return res.status(404).json({ error: 'Сотрудник не найден в вашем проекте' });
@@ -575,17 +571,19 @@ router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
   }
   try {
     const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
-    const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+    const primaryProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+    const projectCodes = await getAllProjectCodes(req.user.sub, primaryProjectCode);
 
-    /* Сотрудника пускаем сюда не только если он СЕЙЧАС числится в проекте
-       этого бухгалтера, но и если у него раньше уже были отчеты по этому
-       проекту (вдруг его потом перевели в другой проект) — иначе бухгалтер
-       потерял бы доступ к выгрузке по своим же старым, уже одобренным
-       отчетам только из-за того, что сотрудник позже сменил проект. */
+    /* Сотрудника пускаем сюда не только если он СЕЙЧАС числится в одном из
+       проектов этого бухгалтера, но и если у него раньше уже были отчеты по
+       этому проекту (вдруг его потом перевели в другой проект) — иначе
+       бухгалтер потерял бы доступ к выгрузке по своим же старым, уже
+       одобренным отчетам только из-за того, что сотрудник позже сменил
+       проект. */
     const employeeResult = await pool.query(
       `SELECT full_name FROM users u WHERE u.id = $1 AND u.role = 'sotr'
-       AND (u.project_code = $2 OR EXISTS (SELECT 1 FROM reports r WHERE r.employee_id = u.id AND r.project_code = $2))`,
-      [employeeId, projectCode]
+       AND (u.project_code = ANY($2::text[]) OR EXISTS (SELECT 1 FROM reports r WHERE r.employee_id = u.id AND r.project_code = ANY($2::text[])))`,
+      [employeeId, projectCodes]
     );
     if (!employeeResult.rows[0]) {
       return res.status(404).json({ error: 'Сотрудник не найден' });
@@ -597,8 +595,8 @@ router.get('/export', requireAuth, requireRole('buh'), async (req, res) => {
        сотрудника задним числом поменяла бы уже сформированные ранее отчеты. */
     let query = `SELECT r.*, u.full_name AS employee_full_name
                  FROM reports r JOIN users u ON u.id = r.employee_id
-                 WHERE r.project_code = $1 AND r.employee_id = $2`;
-    const params = [projectCode, employeeId];
+                 WHERE r.project_code = ANY($1::text[]) AND r.employee_id = $2`;
+    const params = [projectCodes, employeeId];
 
     params.push(status && status !== 'all' ? status : 'approved');
     query += ` AND r.status = $${params.length}`;
@@ -682,12 +680,14 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
   }
   try {
     const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
-    const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+    const primaryProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+    const projectCodes = await getAllProjectCodes(req.user.sub, primaryProjectCode);
 
     /* Та же логика, что и в /export: пускаем сотрудника сюда, если он сейчас
-       в проекте этого бухгалтера, ИЛИ если у него раньше уже были тут отчеты
-       (на случай, если его потом перевели в другой проект) — чтобы перевод
-       сотрудника не отрезал бухгалтера от его же старых одобренных отчетов. */
+       в одном из проектов этого бухгалтера, ИЛИ если у него раньше уже были
+       тут отчеты (на случай, если его потом перевели в другой проект) —
+       чтобы перевод сотрудника не отрезал бухгалтера от его же старых
+       одобренных отчетов. */
     const employeeResult = await pool.query(
       `SELECT u.full_name, u.tabel_number, u.position, u.legal_entity, u.legal_entity_okpo, u.project_customer,
          COALESCE((
@@ -696,8 +696,8 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
          ), 0) AS advance_amount
        FROM users u
        WHERE u.id = $1 AND u.role = 'sotr'
-       AND (u.project_code = $2 OR EXISTS (SELECT 1 FROM reports r WHERE r.employee_id = u.id AND r.project_code = $2))`,
-      [employeeId, projectCode]
+       AND (u.project_code = ANY($2::text[]) OR EXISTS (SELECT 1 FROM reports r WHERE r.employee_id = u.id AND r.project_code = ANY($2::text[])))`,
+      [employeeId, projectCodes]
     );
     if (!employeeResult.rows[0]) {
       return res.status(404).json({ error: 'Сотрудник не найден' });
@@ -707,8 +707,8 @@ router.get('/ao1', requireAuth, requireRole('buh'), async (req, res) => {
     const directorResult = await pool.query("SELECT full_name FROM users WHERE role = 'ruk' ORDER BY created_at LIMIT 1");
     const directorName = directorResult.rows[0] ? directorResult.rows[0].full_name : '';
 
-    let query = `SELECT * FROM reports WHERE project_code = $1 AND employee_id = $2 AND type = 'expense' AND status = 'approved'`;
-    const params = [projectCode, employeeId];
+    let query = `SELECT * FROM reports WHERE project_code = ANY($1::text[]) AND employee_id = $2 AND type = 'expense' AND status = 'approved'`;
+    const params = [projectCodes, employeeId];
     if (from) { params.push(from); query += ` AND date_iso >= $${params.length}`; }
     if (to) { params.push(to); query += ` AND date_iso <= $${params.length}`; }
     query += ' ORDER BY date_iso ASC, created_at ASC';
@@ -778,9 +778,10 @@ router.patch('/:id/decision', requireAuth, requireRole('buh'), async (req, res) 
   }
   try {
     const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
-    const projectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+    const primaryProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+    const projectCodes = await getAllProjectCodes(req.user.sub, primaryProjectCode);
 
-    const existing = await pool.query('SELECT * FROM reports WHERE id = $1 AND project_code = $2', [req.params.id, projectCode]);
+    const existing = await pool.query('SELECT * FROM reports WHERE id = $1 AND project_code = ANY($2::text[])', [req.params.id, projectCodes]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'Отчет не найден' });
 
     const result = await pool.query(
