@@ -509,6 +509,43 @@ router.patch('/employees/:id', requireAuth, requireRole('buh', 'ruk'), async (re
   }
 });
 
+/* ---------- Сбросить пароль сотруднику ----------
+   Временный пароль при регистрации (см. POST /employees выше) показывается
+   только один раз в интерфейсе — если его потеряли/забыли передать, другого
+   способа узнать его нет (хранится только bcrypt-хеш), а сам сотрудник
+   тоже никак не попадёт в кабинет, чтобы сменить пароль самостоятельно.
+   Эта кнопка выдаёт новый временный пароль тем же способом — его снова
+   нужно передать сотруднику лично, а сам он будет обязан задать свой
+   собственный при следующем входе (must_change_password = true). Права
+   доступа ровно те же, что и у PATCH /employees/:id выше. */
+router.post('/employees/:id/reset-password', requireAuth, requireRole('buh', 'ruk'), async (req, res) => {
+  try {
+    if (req.user.role === 'buh') {
+      const userResult = await pool.query('SELECT project_code FROM users WHERE id = $1', [req.user.sub]);
+      const myPrimaryProjectCode = userResult.rows[0] ? userResult.rows[0].project_code : null;
+      const myProjectCodes = await getAllProjectCodes(req.user.sub, myPrimaryProjectCode);
+      const existing = await pool.query(
+        "SELECT id FROM users WHERE id = $1 AND role = 'sotr' AND project_code = ANY($2::text[])",
+        [req.params.id, myProjectCodes]
+      );
+      if (!existing.rows[0]) return res.status(404).json({ error: 'Сотрудник не найден в вашем проекте' });
+    } else {
+      const existing = await pool.query("SELECT id FROM users WHERE id = $1 AND role = 'sotr'", [req.params.id]);
+      if (!existing.rows[0]) return res.status(404).json({ error: 'Сотрудник не найден' });
+    }
+    const tempPassword = crypto.randomBytes(6).toString('base64url');
+    const hash = await bcrypt.hash(tempPassword, 10);
+    await pool.query(
+      'UPDATE users SET password_hash = $1, must_change_password = true WHERE id = $2',
+      [hash, req.params.id]
+    );
+    res.json({ tempPassword });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Не удалось сбросить пароль' });
+  }
+});
+
 /* ---------- Общая сборка файла "Управленческий учет" (УО) ----------
    Используется и выгрузкой бухгалтера (/export, по любому сотруднику его
    проекта), и собственной выгрузкой сотрудника (/export/mine, только свои

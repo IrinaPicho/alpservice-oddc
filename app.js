@@ -1575,6 +1575,24 @@ function loadBuhExportEmployees() {
   }).catch(function () { /* страница просто останется пустой, не критично */ });
 }
 
+/* Сбросить пароль сотруднику — на случай, если временный пароль при
+   регистрации потерялся/не был передан (он показывается только один раз,
+   см. addEmployeeFromForm) и сотрудник не может зайти вообще никак, чтобы
+   сменить его самостоятельно. Выдаёт новый временный пароль тем же способом,
+   что и при регистрации — его снова нужно передать сотруднику лично, а он
+   при следующем входе будет обязан сразу задать свой собственный. */
+function resetEmpPassword(id) {
+  if (!window.confirm('Старый пароль сотрудника перестанет работать — понадобится новый. Продолжить?')) return;
+  api('/api/reports/employees/' + id + '/reset-password', { method: 'POST' })
+    .then(function (data) {
+      window.alert(
+        'Новый временный пароль: ' + data.tempPassword +
+        '\n\nСообщите его сотруднику лично (телефон, мессенджер) — после входа он должен будет сразу задать свой собственный пароль. Этот пароль больше нигде не показывается, сохраните его сейчас, если нужно.'
+      );
+    })
+    .catch(function (e) { window.alert(e.message || 'Не удалось сбросить пароль'); });
+}
+
 var empEditOpenId = null; // id сотрудника, у которого сейчас открыта форма "Проект/юрлицо"
 
 function renderBuhExportList() {
@@ -1603,6 +1621,7 @@ function renderBuhExportList() {
            вообще). Закрыть/сохранить теперь можно только явными кнопками
            "Отмена"/"Сохранить" внутри самой формы. */
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
+        (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="resetEmpPassword(\'' + emp.id + '\')">Сбросить пароль</button>') +
       '</div></div>';
     var editForm = isEditing ? empEditFormHtml(emp, 'exp') : '';
     return row + editForm;
@@ -2023,6 +2042,7 @@ function renderRukEmployeeList() {
            открыта, иначе повторное нажатие молча закрывало её и стирало
            несохранённые изменения. */
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
+        (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="resetEmpPassword(\'' + emp.id + '\')">Сбросить пароль</button>') +
       '</div></div>';
     var editForm = isEditing ? empEditFormHtml(emp, 'ruk') : '';
     return row + editForm;
@@ -2065,6 +2085,7 @@ function renderBuhEmployeeList() {
            открыта, иначе повторное нажатие молча закрывало её и стирало
            несохранённые изменения. */
         (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="toggleEmpEdit(\'' + emp.id + '\')">Проект/юрлицо</button>') +
+        (isEditing ? '' : '<button class="btn-ao1" type="button" onclick="resetEmpPassword(\'' + emp.id + '\')">Сбросить пароль</button>') +
       '</div></div>';
     var editForm = isEditing ? empEditFormHtml(emp, 'buh') : '';
     return row + editForm;
