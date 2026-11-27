@@ -416,8 +416,16 @@ router.get('/employees', requireAuth, requireRole('buh', 'ruk'), async (req, res
          проектах), тоже должен быть виден этому бухгалтеру — иначе он не
          сможет проверить его отчеты по этому проекту в "Выгрузке отчетов". */
       const myProjectCodes = await getAllProjectCodes(req.user.sub, primaryProjectCode);
+      /* DISTINCT тут не нужен и даже ломает запрос: строки и так берутся
+         по одной на сотрудника (это прямой SELECT из users, без JOIN,
+         который мог бы размножить строки — EXISTS их не размножает), а
+         DISTINCT требует сравнивать на равенство ВСЕ колонки, включая
+         additional_projects (json), для которого в Postgres такого
+         сравнения не существует — отсюда ошибка "could not identify an
+         equality operator for type json" и падение сервера на этом
+         запросе (видно в логе на этой же строке). */
       result = await pool.query(
-        `SELECT DISTINCT ${EMPLOYEE_LIST_COLUMNS} FROM users u
+        `SELECT ${EMPLOYEE_LIST_COLUMNS} FROM users u
          WHERE u.role = 'sotr' AND u.is_active = true AND (
            u.project_code = ANY($1::text[])
            OR EXISTS (SELECT 1 FROM employee_projects ep WHERE ep.employee_id = u.id AND ep.project_code = ANY($1::text[]))
